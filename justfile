@@ -63,3 +63,21 @@ link-content path:
 # Create a new skeleton content repo at path and link it here
 init-content path:
     uv run python scripts/link-content.py {{path}} --init
+
+# Commit + push content-repo changes (linked mode only)
+push-content msg:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -L raw ]; then
+        echo "error: raw is not a symlink — solo mode has no separate content repo." >&2
+        exit 1
+    fi
+    content=$(cd "$(dirname "$(readlink raw)")" && pwd -P)
+    cd "$content"
+    git add -A
+    if git diff --cached --quiet; then
+        echo "no content changes to commit"
+        exit 0
+    fi
+    git commit -m "{{msg}}"
+    git push
