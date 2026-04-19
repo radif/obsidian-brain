@@ -6,6 +6,16 @@ Adapted from [Karpathy's LLM Knowledge Base](https://gist.github.com/karpathy/44
 
 Anthropic has clarified that personal use of the Claude Agent SDK is covered under your existing Claude subscription (Max, Team, or Enterprise) - no separate API credits needed. Unlike OpenClaw, which requires API billing for its memory flush, this runs on your subscription.
 
+## Screenshots
+
+The compiled knowledge base viewed in Obsidian — nodes are concept articles, edges are `[[wikilinks]]`. The terminal shows `just compile` promoting raw sources into articles.
+
+![Knowledge graph with compile pipeline running](docs/screenshot1.png)
+
+A compiled concept article rendered in Obsidian's reading view — YAML frontmatter surfaces as structured properties (title, date, tags), and the body cites its `raw/` sources inline.
+
+![Compiled article with frontmatter properties](docs/screenshot2.png)
+
 ## Repository architecture
 
 This project ships the **tooling** (scripts, hooks, docs, `.claude/` config) in a public repository. Your **knowledge** lives separately — either inside your checkout of this repo (gitignored) or in a private companion repo linked via symlinks. Either way, personal content never leaks into the public structural repo.
