@@ -20,6 +20,10 @@ A compiled concept article rendered in Obsidian's reading view — YAML frontmat
 
 ![Compiled article with frontmatter properties](docs/screenshot2.png)
 
+A note viewed alongside its local graph (pane linked to the active note, so the neighborhood view follows you as you navigate). Here `JC - Social Sciences` is centered; direct neighbors are sibling Journal Club categories and the concepts referenced inline in the article.
+
+![Local graph pinned to the active note](docs/screenshot3.png)
+
 ## Repository architecture
 
 This project ships the **tooling** (scripts, hooks, docs, `.claude/` config) in a public repository. Your **knowledge** lives separately — either inside your checkout of this repo (gitignored) or in a private companion repo linked via symlinks. Either way, personal content never leaks into the public structural repo.
