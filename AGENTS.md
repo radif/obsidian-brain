@@ -420,6 +420,7 @@ Commands use simple relative paths from the project root. Empty `matcher` catche
 ### Hook Details
 
 **`session-start.py`** (SessionStart, 15s timeout in `.claude/settings.json`)
+- Recursion guard: exits immediately with no output if `CLAUDE_INVOKED_BY` is set (i.e. when invoked by the Claude Code subprocess that the Agent SDK spawns from `flush.py`, `compile.py`, or `query.py`). Without this guard, the SDK subprocess fires this hook, which runs collect-assets and injects 20 KB of context — overhead that also destabilizes the SDK session and produces the spurious "Command failed with exit code 1" errors observed pre-fix.
 - No LLM calls. Local file I/O plus one subprocess spawn (collect-assets, 5s timeout).
 - Builds the injected context from three parts: today's calendar date, `knowledge/index.md`, and the most recent daily log (today's, or yesterday's if today's doesn't exist).
 - The daily log is truncated to its last `MAX_LOG_LINES = 30` lines before injection.
@@ -637,7 +638,9 @@ No API key needed - uses Claude Code's built-in credentials at `~/.claude/.crede
 
 ## Costs
 
-| Operation | Cost |
+> **All cost figures below reflect API pricing.** If you run this system via Claude Code connected to a Claude subscription (Max, Team, or Enterprise), there is **no per-call charge** — usage counts against your subscription's included Claude Code quota, not per-token billing. The cost display in the scripts (`Cost*: $…`) is the API-equivalent, shown for transparency and for users who run on metered API credits.
+
+| Operation | Cost (API pricing) |
 |-----------|------|
 | Compile one daily log | $0.45-0.65 |
 | Query (no file-back) | ~$0.15-0.25 |
@@ -645,6 +648,8 @@ No API key needed - uses Claude Code's built-in credentials at `~/.claude/.crede
 | Full lint (with contradictions) | ~$0.15-0.25 |
 | Structural lint only | $0.00 |
 | Memory flush (per session) | ~$0.02-0.05 |
+
+Scripts also print token usage (`input_tokens`, `output_tokens`, and — when applicable — `cache_read_input_tokens` / `cache_creation_input_tokens`) alongside cost via the `format_token_usage()` helper in `scripts/utils.py`.
 
 ---
 

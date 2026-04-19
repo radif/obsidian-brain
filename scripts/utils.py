@@ -1,5 +1,7 @@
 """Shared utilities for the personal knowledge base."""
 
+from __future__ import annotations
+
 import hashlib
 import json
 import re
@@ -40,6 +42,35 @@ def save_state(state: dict) -> None:
 def file_hash(path: Path) -> str:
     """SHA-256 hash of a file (first 16 hex chars)."""
     return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+
+
+# ── Token usage formatting ────────────────────────────────────────────
+
+def format_token_usage(message_usage: dict | None) -> str:
+    """Format a ResultMessage.usage dict for human display.
+
+    Returns a string like "10,000 in, 500 out, 45,000 cache read".
+    Cache fields are omitted when zero.
+    """
+    u = message_usage or {}
+    parts = [
+        f"{u.get('input_tokens', 0):,} in",
+        f"{u.get('output_tokens', 0):,} out",
+    ]
+    cache_read = u.get('cache_read_input_tokens', 0)
+    if cache_read:
+        parts.append(f"{cache_read:,} cache read")
+    cache_create = u.get('cache_creation_input_tokens', 0)
+    if cache_create:
+        parts.append(f"{cache_create:,} cache write")
+    return ", ".join(parts)
+
+
+# Shown after every cost display; cost figures are API pricing only.
+COST_DISCLAIMER = (
+    "* Cost reflects API pricing. No per-call charge if you use Claude Code via a "
+    "Claude subscription (Max, Team, Enterprise)."
+)
 
 
 # ── Slug / naming ─────────────────────────────────────────────────────

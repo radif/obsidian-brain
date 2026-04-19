@@ -12,12 +12,18 @@ Usage:
 
 from __future__ import annotations
 
+# Hook recursion guard: tells the hooks in .claude/settings.json to no-op
+# inside the Claude Code subprocess that the Agent SDK will spawn below.
+# Must be set BEFORE any imports that might invoke the SDK.
+import os
+os.environ["CLAUDE_INVOKED_BY"] = "query"
+
 import argparse
 import asyncio
 from pathlib import Path
 
 from config import KNOWLEDGE_DIR, QA_DIR, now_iso
-from utils import load_state, read_all_wiki_content, save_state
+from utils import COST_DISCLAIMER, format_token_usage, load_state, read_all_wiki_content, save_state
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
@@ -99,6 +105,8 @@ consulting the knowledge base below.
                         answer += block.text
             elif isinstance(message, ResultMessage):
                 cost = message.total_cost_usd or 0.0
+                print(f"Tokens: {format_token_usage(message.usage)}")
+                print(f"Cost*:  ${cost:.4f}")
     except Exception as e:
         answer = f"Error querying knowledge base: {e}"
 
@@ -132,6 +140,8 @@ def main():
         print("\n" + "-" * 60)
         qa_count = len(list(QA_DIR.glob("*.md"))) if QA_DIR.exists() else 0
         print(f"Answer filed to knowledge/qa/ ({qa_count} Q&A articles total)")
+
+    print(COST_DISCLAIMER)
 
 
 if __name__ == "__main__":

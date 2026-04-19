@@ -14,6 +14,12 @@ Usage:
 
 from __future__ import annotations
 
+# Hook recursion guard: tells the hooks in .claude/settings.json to no-op
+# inside the Claude Code subprocess that the Agent SDK will spawn below.
+# Must be set BEFORE any imports that might invoke the SDK.
+import os
+os.environ["CLAUDE_INVOKED_BY"] = "compile"
+
 import argparse
 import asyncio
 import sys
@@ -21,7 +27,9 @@ from pathlib import Path
 
 from config import AGENTS_FILE, CONCEPTS_DIR, CONNECTIONS_DIR, KNOWLEDGE_DIR, RAW_DIR, now_iso
 from utils import (
+    COST_DISCLAIMER,
     file_hash,
+    format_token_usage,
     list_raw_files,
     list_wiki_articles,
     load_state,
@@ -149,7 +157,8 @@ Read the raw source above and compile it into wiki articles following the schema
                         pass  # compilation output - LLM writes files directly
             elif isinstance(message, ResultMessage):
                 cost = message.total_cost_usd or 0.0
-                print(f"  Cost: ${cost:.4f}")
+                print(f"  Tokens: {format_token_usage(message.usage)}")
+                print(f"  Cost*:  ${cost:.4f}")
     except Exception as e:
         print(f"  Error: {e}")
         return 0.0
@@ -224,8 +233,9 @@ def main():
         print(f"  Done.")
 
     articles = list_wiki_articles()
-    print(f"\nCompilation complete. Total cost: ${total_cost:.2f}")
+    print(f"\nCompilation complete. Total cost*: ${total_cost:.2f}")
     print(f"Knowledge base: {len(articles)} articles")
+    print(COST_DISCLAIMER)
 
 
 if __name__ == "__main__":

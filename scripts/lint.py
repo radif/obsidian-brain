@@ -17,9 +17,11 @@ from pathlib import Path
 
 from config import KNOWLEDGE_DIR, REPORTS_DIR, ROOT_DIR, now_iso, today_iso
 from utils import (
+    COST_DISCLAIMER,
     count_inbound_links,
     extract_wikilinks,
     file_hash,
+    format_token_usage,
     get_article_word_count,
     list_raw_files,
     list_wiki_articles,
@@ -155,6 +157,7 @@ async def check_contradictions() -> list[dict]:
         TextBlock,
         query,
     )
+    cost = 0.0
 
     wiki_content = read_all_wiki_content()
 
@@ -194,6 +197,10 @@ Do NOT output anything else - no preamble, no explanation, just the formatted li
                 for block in message.content:
                     if isinstance(block, TextBlock):
                         response += block.text
+            elif isinstance(message, ResultMessage):
+                cost = message.total_cost_usd or 0.0
+                print(f"    Tokens: {format_token_usage(message.usage)}")
+                print(f"    Cost*:  ${cost:.4f}")
     except Exception as e:
         return [{"severity": "error", "check": "contradiction", "file": "(system)", "detail": f"LLM check failed: {e}"}]
 
@@ -302,6 +309,9 @@ def main():
     warnings = sum(1 for i in all_issues if i["severity"] == "warning")
     suggestions = sum(1 for i in all_issues if i["severity"] == "suggestion")
     print(f"\nResults: {errors} errors, {warnings} warnings, {suggestions} suggestions")
+
+    if not args.structural_only:
+        print(COST_DISCLAIMER)
 
     if errors > 0:
         print("\nErrors found - knowledge base needs attention!")

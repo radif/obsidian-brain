@@ -17,10 +17,20 @@ Configure in .claude/settings.json:
 """
 
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+# Recursion guard: exit immediately if we were spawned by a script that uses
+# the Agent SDK (flush.py, compile.py, query.py). Those scripts set
+# CLAUDE_INVOKED_BY before invoking the SDK; the SDK inherits env vars into
+# its bundled Claude Code subprocess, which would otherwise fire this hook
+# and trigger needless overhead (collect-assets subprocess + context injection)
+# that can destabilize the SDK session.
+if os.environ.get("CLAUDE_INVOKED_BY"):
+    sys.exit(0)
 
 # Paths relative to project root
 ROOT = Path(__file__).resolve().parent.parent

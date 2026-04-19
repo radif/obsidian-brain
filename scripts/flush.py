@@ -130,7 +130,15 @@ respond with exactly: FLUSH_OK
                     if isinstance(block, TextBlock):
                         response += block.text
             elif isinstance(message, ResultMessage):
-                pass
+                # Log tokens + cost for diagnostics. Cost is API-equivalent only
+                # — no charge if the user runs Claude Code via a subscription plan.
+                from utils import format_token_usage
+                cost = message.total_cost_usd or 0.0
+                logging.info(
+                    "Flush usage: %s | Cost*: $%.4f",
+                    format_token_usage(message.usage),
+                    cost,
+                )
     except Exception as e:
         import traceback
         logging.error("Agent SDK error: %s\n%s", e, traceback.format_exc())

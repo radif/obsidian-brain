@@ -60,7 +60,7 @@ Paths under `raw/`, `knowledge/`, and `notes/` are gitignored here and resolve e
 3. **Before answering a question that might already be covered, consult the injected index first.** If an `[[concepts/…]]` entry looks relevant, `Read` it instead of re-deriving. Cite sources using `[[path/slug]]` wikilinks (no `.md` extension).
 4. **Prefer `scripts/query.py` over manual synthesis** when the user's question spans multiple articles. Use `--file-back` when the answer itself is worth preserving.
 5. **Never delete a raw source that has been compiled.** Compiled articles reference it in their `sources:` frontmatter (e.g. `raw/daily/2026-04-10.md`); deletion creates broken links.
-6. **The `CLAUDE_INVOKED_BY` env var in `flush.py:16` is load-bearing.** Do not remove it — it breaks the session-end → flush → Claude Code → session-end recursion loop.
+6. **The `CLAUDE_INVOKED_BY` env var is load-bearing.** Set at the top of `flush.py`, `compile.py`, and `query.py` before the Agent SDK is invoked. Honored by all three hooks (`session-start.py`, `session-end.py`, `pre-compact.py`), which exit immediately when it's present. Together, these prevent the hooks from firing inside the SDK's bundled Claude Code subprocess — which would otherwise cause recursion, overhead, and (as of the fix on 2026-04-18) spurious `Command failed with exit code 1` errors after each compile/query/flush.
 
 ## Adding raw sources manually
 
