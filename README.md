@@ -8,6 +8,10 @@ Anthropic has clarified that personal use of the Claude Agent SDK is covered und
 
 ## Screenshots
 
+The graph filtered down to `knowledge/concepts` — only compiled concept articles and their `[[wikilinks]]`, with `just compile-dry` confirming the cache is up to date.
+
+![Concepts-only graph with dry-run compile](docs/screenshot0.jpg)
+
 The compiled knowledge base viewed in Obsidian — nodes are concept articles, edges are `[[wikilinks]]`. The terminal shows `just compile` promoting raw sources into articles.
 
 ![Knowledge graph with compile pipeline running](docs/screenshot1.png)
