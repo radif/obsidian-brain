@@ -144,17 +144,30 @@ The vault is useful *outside* the structural repo too. When you open Claude Code
 
 This repo ships a slash command for exactly that:
 
-### The `/connect-obsidian` command
+### The `/connect-obsidian-brain` command
 
-Located at [`.claude/commands/connect-obsidian.md`](.claude/commands/connect-obsidian.md). When invoked, it:
+Located at [`.claude/commands/connect-obsidian-brain.md`](.claude/commands/connect-obsidian-brain.md).
 
-1. **Resolves the vault path** — checks the `OBSIDIAN_BRAIN_ROOT` env var first, then falls back to `~/obsidian-brain`, `~/Personal/obsidian-brain`, or `~/Documents/obsidian-brain`. Prompts if none match.
-2. **Loads the rules** — reads `CLAUDE.md` (architecture + content-mode contract) in full.
-3. **Loads the catalog** — reads `knowledge/index.md` in full so Claude knows what's in the brain without having to grep for it.
-4. **Loads today's context** — reads the most recent daily log so Claude knows what you've been thinking about recently.
-5. **Establishes the access pattern** — for the rest of the session, Claude treats vault paths as read-available, respects bucket ownership rules (`raw/daily/` append-only, `knowledge/concepts/` LLM-owned, `notes/` freeform, etc.), and knows which repo to commit to when edits are requested.
+**In one line:** a slash command installed at the user level that, in any project, loads the context of your self-compiling knowledge base — **how you look at problems, your coding style, and your angle of attack** — so you can write casual prompts and get good, predictable results back.
 
-Total context load on connect: ~25K tokens. Everything beyond that is read on demand.
+**The problem this solves.** When you work across multiple projects you end up re-typing the same context every session: your preferred approach, your vocabulary, the invariants you care about, what "good" looks like to you. Without it, Claude produces generic answers; with it, every session starts with a five-minute context dump that kills flow. And the answers drift across sessions because you never remember to include the same things twice.
+
+**What it's for.** Loading the brain once per session so three things become true for the rest of that session:
+
+- **You can use casual prompts.** "Fix the gem tab timeout" instead of "given our home-screen domain rules, our canonical vocabulary, and how I normally approach a flaky animation bug, fix the gem tab timeout." Claude already has the rest.
+- **You don't repeat yourself.** Your angle of attack, the way you name things, your coding style, the invariants you never skip — all loaded once, reused for the whole session.
+- **Results are good and predictable.** The command pulls in your personal operating system — how you look at problems, what you optimize for, what you flag — so Claude's answers look like what you would have produced, not a generic LLM response.
+
+When invoked, it:
+
+1. **Loads your operating system (highest priority).** Reads your personal doctrine file — e.g., `raw/research/domain-philosophy/how-<you>-works-with-ai.md` — that captures how you attack problems, your coding style, what you count as done, what you never skip. This is the file that shapes every downstream response.
+2. **Resolves the vault path.** Checks the `OBSIDIAN_BRAIN_ROOT` env var first, then falls back to `~/obsidian-brain`, `~/Personal/obsidian-brain`, or `~/Documents/obsidian-brain`. Prompts if none match.
+3. **Loads the rules.** Reads `CLAUDE.md` in full (vault architecture, content-mode contract).
+4. **Loads the catalog.** Reads `knowledge/index.md` in full so Claude knows what's in the brain without grepping for it.
+5. **Loads today's context.** Reads the most recent daily log so Claude knows what you've been thinking about recently.
+6. **Establishes the behavioral contract.** For the rest of the session, every prompt runs through the doctrine: load domain context before coding, trace the user journey, name invariants, don't self-validate, report in trust terms, use canonical vocabulary.
+
+Total context load on connect: ~30K tokens. Everything beyond that is read on demand.
 
 ### Installing at the user level
 
@@ -163,19 +176,19 @@ To use the command from any project (not just inside this repo), install it into
 ```bash
 # macOS / Linux
 mkdir -p ~/.claude/commands
-cp .claude/commands/connect-obsidian.md ~/.claude/commands/
+cp .claude/commands/connect-obsidian-brain.md ~/.claude/commands/
 
 # or symlink so future updates flow through automatically:
-ln -s "$(pwd)/.claude/commands/connect-obsidian.md" ~/.claude/commands/connect-obsidian.md
+ln -s "$(pwd)/.claude/commands/connect-obsidian-brain.md" ~/.claude/commands/connect-obsidian-brain.md
 ```
 
 After that, in any Claude Code session anywhere on your machine you can run:
 
 ```
-/connect-obsidian
+/connect-obsidian-brain
 ```
 
-and the current session pulls in the brain's context.
+and the current session pulls in the brain's context plus your operating-system doctrine.
 
 ### Customizing the vault path
 
@@ -189,19 +202,20 @@ The command checks this variable first, so Claude will find the vault regardless
 
 ### When *not* to use the command
 
-- **Inside this repo itself.** The `SessionStart` hook in `.claude/settings.json` already injects `knowledge/index.md` and the latest daily log at session start. Running `/connect-obsidian` on top is redundant.
+- **Inside this repo itself.** The `SessionStart` hook in `.claude/settings.json` already injects `knowledge/index.md` and the latest daily log at session start. Running `/connect-obsidian-brain` on top is redundant.
 - **For editing the vault.** Modification of scripts, hooks, or docs is safer from inside this repo, where the full compile / lint / query tooling is wired up.
-- **When context economy is critical.** If you're deep in a heavy session and approaching context limits, a ~25K-token connect adds up. Use targeted `Read`s into specific vault files instead.
+- **When context economy is critical.** If you're deep in a heavy session and approaching context limits, a ~30K-token connect adds up. Use targeted `Read`s into specific vault files instead.
 
 ### Recipe: reproducing this command from scratch
 
-If the shipped file is missing or you want to adapt the prompt for a different knowledge system, here's the shape of the instructions it contains — save this to a markdown file at `~/.claude/commands/connect-obsidian.md` (or whatever name you prefer):
+If the shipped file is missing or you want to adapt the prompt for a different knowledge system, here's the shape of the instructions it contains — save this to a markdown file at `~/.claude/commands/connect-obsidian-brain.md` (or whatever name you prefer):
 
 ```markdown
 ---
 description: Connect an external Claude Code session to an Obsidian-style
-  knowledge base — load structural rules, the knowledge index, and the most
-  recent daily log.
+  knowledge base — load the user's operating-system doctrine, structural
+  rules, the knowledge index, and the most recent daily log so casual
+  prompts get answered the way the user would.
 ---
 
 # Connect to Obsidian Brain
@@ -212,22 +226,29 @@ Find the vault via:
   3. Ask the user
 
 Then read, in order:
-  1. `$BRAIN/CLAUDE.md` in full — the architectural rules
-  2. `$BRAIN/knowledge/index.md` in full — the catalog
-  3. The most recent file in `$BRAIN/raw/daily/` — current thinking
+  1. The user's operating-system doctrine if one exists (e.g., a file
+     named `how-<user>-works-with-ai.md` under `raw/research/`) — this
+     is the highest-priority file; every response flows through it.
+  2. `$BRAIN/CLAUDE.md` in full — the architectural rules.
+  3. `$BRAIN/knowledge/index.md` in full — the catalog.
+  4. The most recent file in `$BRAIN/raw/daily/` — current thinking.
 
-Report one sentence summarizing what was loaded, then wait for the user's
-question. Treat vault paths as read-available for the rest of the session;
-respect bucket ownership (`raw/daily/` append-only, `knowledge/*` LLM-owned,
-`notes/` freeform). Commit structural changes to the structural repo and
-content changes to the content repo (linked mode) or wherever the user
-instructs (solo mode).
+Report one sentence summarizing what was loaded, then wait. Treat vault
+paths as read-available for the rest of the session; respect bucket
+ownership (`raw/daily/` append-only, `knowledge/*` LLM-owned, `notes/`
+freeform). Commit structural changes to the structural repo and content
+changes to the content repo (linked mode) or wherever the user instructs
+(solo mode).
+
+For every prompt: load relevant domain context before coding, trace the
+user journey, name invariants, don't self-validate, report in trust
+terms, use canonical vocabulary when the domain has one.
 
 Do NOT read `AGENTS.md` in full unless a question demands it — it's long.
 Do NOT modify the vault without explicit instruction.
 ```
 
-The full shipped version (in `.claude/commands/connect-obsidian.md`) is longer because it handles edge cases (both content modes, broken symlinks, fallback paths). Use the shipped file unless you're building something different.
+The full shipped version (in `.claude/commands/connect-obsidian-brain.md`) is longer because it handles edge cases (both content modes, broken symlinks, fallback paths) and spells out the behavioral contract in more detail. Use the shipped file unless you're building something different.
 
 ## Technical Reference
 
