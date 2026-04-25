@@ -64,6 +64,10 @@ link-content path:
 init-content path:
     uv run python scripts/link-content.py {{path}} --init
 
+# Fetch a YouTube transcript and save it as a markdown note in raw/transcripts/
+transcript url_or_id:
+    uv run python scripts/transcript.py "{{url_or_id}}"
+
 # Commit + push content-repo changes (linked mode only)
 push-content msg:
     #!/usr/bin/env bash

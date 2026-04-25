@@ -84,6 +84,7 @@ just lint                    # all health checks
 just lint-structural         # skip LLM contradiction check (free)
 just flush                   # manually flush a session transcript
 just collect-assets          # move stray root images into raw/clippings/assets/
+just transcript <url>        # fetch a YouTube transcript -> raw/transcripts/<slug>-<id>.md
 just setup-content           # interactive: pick solo or linked content model
 just solo                    # solo mode (non-interactive): real dirs in this checkout
 just init-content <path>     # linked mode: create skeleton content repo at <path> + symlink
