@@ -7,13 +7,13 @@ other raw bucket, it auto-discovers into the compile pipeline (see
 the transcript, run `just compile` to promote it into knowledge/.
 
 Defaults:
-- timestamps INCLUDED (each line prefixed with [m:ss]) — better for note-taking
+- timestamps OFF (transcript body is plain prose) — pass `--timestamps` to prefix each line with `[m:ss]`
 - language = "en"
 - output = saved file (use --stdout to pipe instead)
 
 Usage:
     just transcript "<youtube-url-or-id>"
-    uv run python scripts/transcript.py <url> --no-timestamps
+    uv run python scripts/transcript.py <url> --timestamps
     uv run python scripts/transcript.py <url> --stdout
     uv run python scripts/transcript.py <url> --language=es
 """
@@ -123,7 +123,11 @@ def build_note(video_id: str, title: str, author: str, language: str, body: str)
 def main() -> int:
     p = argparse.ArgumentParser(description="Fetch a YouTube transcript and save as a markdown note.")
     p.add_argument("url_or_id", help="YouTube URL or 11-character video ID")
-    p.add_argument("--no-timestamps", action="store_true", help="Omit [m:ss] timestamps")
+    p.add_argument(
+        "--timestamps",
+        action="store_true",
+        help="Prefix each line with [m:ss]. Off by default — body is plain prose.",
+    )
     p.add_argument("--language", default="en", help="Transcript language code (default: en)")
     p.add_argument(
         "--stdout",
@@ -138,7 +142,7 @@ def main() -> int:
         return 1
 
     transcript = get_transcript(video_id, args.language)
-    body = format_transcript(transcript, include_timestamps=not args.no_timestamps)
+    body = format_transcript(transcript, include_timestamps=args.timestamps)
 
     if args.stdout:
         print(body)
