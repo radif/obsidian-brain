@@ -35,7 +35,8 @@ def is_music_only(body: str) -> bool:
     return len(meaningful) < 30
 
 ROOT = Path(__file__).resolve().parent.parent
-TRANSCRIPTS_DIR = ROOT / "raw" / "transcripts"
+DEFAULT_TRANSCRIPTS_DIR = ROOT / "raw" / "transcripts"
+TRANSCRIPTS_DIR = DEFAULT_TRANSCRIPTS_DIR  # rebound at runtime when --out is passed
 
 sys.path.insert(0, str(ROOT / "scripts"))
 from transcript import (  # noqa: E402
@@ -54,23 +55,58 @@ def derive_channel_handle(channel_url: str) -> str | None:
     return m.group(1) if m else None
 
 
-def list_channel_videos(channel_url: str) -> list[tuple[str, str]]:
-    """Return [(video_id, title), ...] for every video in the channel."""
+def list_channel_videos(
+    channel_url: str,
+    sort_by: str = "default",
+    limit: int | None = None,
+) -> list[dict]:
+    """Return [{id, title, [view_count, upload_date, duration]}, ...].
+
+    `sort_by="default"` uses fast flat enumeration (id+title only — channel's
+    native order, usually newest-first). `sort_by="popularity"` or `"date"`
+    triggers full per-video metadata enumeration (~1s per video — slow on
+    large channels) and sorts accordingly.
+    """
     if shutil.which("yt-dlp") is None:
         raise SystemExit("error: yt-dlp not found on PATH (install with `brew install yt-dlp`)")
-    result = subprocess.run(
-        ["yt-dlp", "--flat-playlist", "--print", "%(id)s\t%(title)s", channel_url],
-        check=True,
-        capture_output=True,
-        text=True,
+    full = sort_by != "default"
+    fmt = (
+        "%(id)s\t%(title)s\t%(view_count)s\t%(upload_date)s\t%(duration)s"
+        if full else "%(id)s\t%(title)s"
     )
-    videos = []
+    cmd = ["yt-dlp", "--no-warnings", "--quiet", "--print", fmt, channel_url]
+    if not full:
+        cmd.insert(1, "--flat-playlist")
+    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+
+    videos: list[dict] = []
     for line in result.stdout.splitlines():
-        if "\t" not in line:
+        parts = line.split("\t")
+        if len(parts) < 2 or not parts[0].strip():
             continue
-        vid, title = line.split("\t", 1)
-        if vid:
-            videos.append((vid.strip(), title.strip()))
+        v: dict = {"id": parts[0].strip(), "title": parts[1].strip()}
+        if full and len(parts) >= 5:
+            try:
+                v["view_count"] = int(parts[2]) if parts[2] not in ("NA", "") else 0
+            except ValueError:
+                v["view_count"] = 0
+            v["upload_date"] = parts[3].strip() if parts[3] not in ("NA", "") else ""
+            try:
+                v["duration"] = float(parts[4]) if parts[4] not in ("NA", "") else 0.0
+            except ValueError:
+                v["duration"] = 0.0
+        videos.append(v)
+
+    if sort_by == "popularity":
+        videos.sort(
+            key=lambda x: (x.get("view_count", 0), x.get("upload_date", "")),
+            reverse=True,
+        )
+    elif sort_by == "date":
+        videos.sort(key=lambda x: x.get("upload_date", ""), reverse=True)
+
+    if limit:
+        videos = videos[:limit]
     return videos
 
 
@@ -155,22 +191,61 @@ def main() -> int:
         default=5.0,
         help="Seconds to wait between fetch attempts to avoid rate-limit/IP blocks (default: 5.0)",
     )
+    p.add_argument(
+        "--out",
+        type=Path,
+        default=DEFAULT_TRANSCRIPTS_DIR,
+        help="Output base dir (default: raw/transcripts/). Use raw/competitors/<name>/transcripts for competitor channels.",
+    )
+    p.add_argument(
+        "--sort-by",
+        choices=["default", "popularity", "date"],
+        default="default",
+        help="Order to fetch videos. 'default' = channel's native order (fast). 'popularity' or 'date' = full meta enumeration (~1s/video, slow on large channels).",
+    )
+    p.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Cap total videos attempted. Useful with --sort-by popularity to fetch top-N.",
+    )
+    p.add_argument(
+        "--channel-handle",
+        default=None,
+        help="Override the channel-handle subdir name (default: derived from URL or auto-detected per video)",
+    )
     args = p.parse_args()
 
     languages = [lang.strip() for lang in args.languages.split(",") if lang.strip()]
     auto_fallback = not args.no_fallback
 
-    channel_handle = derive_channel_handle(args.channel_url)
+    # Rebind global TRANSCRIPTS_DIR so already_saved + writes route to chosen base
+    global TRANSCRIPTS_DIR
+    out_path = args.out
+    if not out_path.is_absolute():
+        out_path = ROOT / out_path
+    TRANSCRIPTS_DIR = out_path.resolve()
+
+    channel_handle = args.channel_handle or derive_channel_handle(args.channel_url)
+    enum_note = f"sort={args.sort_by}" + (f", limit={args.limit}" if args.limit else "")
     print(
-        f"enumerating: {args.channel_url} (handle={channel_handle or 'unknown'})",
+        f"enumerating: {args.channel_url} (handle={channel_handle or 'unknown'}, {enum_note})",
         file=sys.stderr,
     )
-    videos = list_channel_videos(args.channel_url)
-    print(f"found {len(videos)} videos\n", file=sys.stderr)
+    if args.sort_by != "default":
+        print(
+            f"(this requires full per-video metadata; ~1s/video — be patient on large channels)",
+            file=sys.stderr,
+        )
+    videos = list_channel_videos(args.channel_url, sort_by=args.sort_by, limit=args.limit)
+    print(f"found {len(videos)} videos to attempt\n", file=sys.stderr)
 
     counts = {"ok": 0, "skip": 0, "fail": 0}
-    for i, (vid, title) in enumerate(videos, 1):
-        prefix = f"[{i}/{len(videos)}] {vid}"
+    for i, v in enumerate(videos, 1):
+        vid = v["id"]
+        title = v["title"]
+        view_str = f" [{v['view_count']:,} views]" if "view_count" in v else ""
+        prefix = f"[{i}/{len(videos)}] {vid}{view_str}"
         status, detail = transcribe_one(
             vid, languages, auto_fallback, channel_handle=channel_handle, force=args.force
         )
