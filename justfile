@@ -72,6 +72,14 @@ transcript url_or_id:
 extract-papers *args:
     uv run scripts/extract-papers.py {{args}}
 
+# Bulk-transcribe every video in a YouTube channel into raw/transcripts/
+transcribe-channel channel_url:
+    uv run python scripts/transcribe-channel.py "{{channel_url}}"
+
+# Convert an RTF file to Markdown via pandoc (output: same dir, .md extension)
+rtf-to-md path:
+    uv run python scripts/rtf-to-md.py "{{path}}"
+
 # Commit + push content-repo changes (linked mode only)
 push-content msg:
     #!/usr/bin/env bash
