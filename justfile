@@ -68,6 +68,10 @@ init-content path:
 transcript url_or_id:
     uv run python scripts/transcript.py "{{url_or_id}}"
 
+# Convert PDFs in raw/research/research-papers/ into sibling .md files via marker
+extract-papers *args:
+    uv run scripts/extract-papers.py {{args}}
+
 # Commit + push content-repo changes (linked mode only)
 push-content msg:
     #!/usr/bin/env bash
