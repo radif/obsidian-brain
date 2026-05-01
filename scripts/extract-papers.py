@@ -23,6 +23,7 @@ Skips PDFs whose .md already exists; pass --force to re-convert.
 
 Usage:
     just extract-papers
+    just extract-papers raw/research/research-papers/foo.pdf
     uv run scripts/extract-papers.py --force
     uv run scripts/extract-papers.py --dry-run
 """
@@ -41,6 +42,13 @@ ASSETS_DIR = PAPERS_DIR / "assets"
 
 def find_pdfs() -> list[Path]:
     return sorted(PAPERS_DIR.glob("*.pdf"))
+
+
+def display_path(p: Path) -> str:
+    try:
+        return str(p.relative_to(ROOT))
+    except ValueError:
+        return str(p)
 
 
 def needs_conversion(pdf: Path, force: bool) -> bool:
@@ -80,23 +88,35 @@ def main() -> int:
         description="Convert research-paper PDFs to markdown using marker.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    p.add_argument("paths", nargs="*", help="Specific PDFs to convert (default: all in raw/research/research-papers/)")
     p.add_argument("--force", action="store_true", help="Re-convert even if .md exists")
     p.add_argument("--dry-run", action="store_true", help="List files that would be converted; no writes")
     args = p.parse_args()
 
-    if not PAPERS_DIR.exists():
-        print(f"error: {PAPERS_DIR.relative_to(ROOT)} does not exist", file=sys.stderr)
-        return 1
-
-    pdfs = find_pdfs()
-    if not pdfs:
-        print(f"no PDFs found in {PAPERS_DIR.relative_to(ROOT)}")
-        return 0
+    if args.paths:
+        pdfs = []
+        for raw in args.paths:
+            path = Path(raw)
+            if not path.is_file():
+                print(f"error: {raw} not found", file=sys.stderr)
+                return 1
+            if path.suffix.lower() != ".pdf":
+                print(f"error: {raw} is not a .pdf", file=sys.stderr)
+                return 1
+            pdfs.append(path)
+    else:
+        if not PAPERS_DIR.exists():
+            print(f"error: {display_path(PAPERS_DIR)} does not exist", file=sys.stderr)
+            return 1
+        pdfs = find_pdfs()
+        if not pdfs:
+            print(f"no PDFs found in {display_path(PAPERS_DIR)}")
+            return 0
 
     todo = [pdf for pdf in pdfs if needs_conversion(pdf, args.force)]
     print(f"found {len(pdfs)} PDFs, {len(todo)} need conversion")
     for pdf in todo:
-        print(f"  {pdf.relative_to(ROOT)}")
+        print(f"  {display_path(pdf)}")
 
     if not todo:
         print("nothing to do (use --force to re-convert)")
@@ -118,8 +138,7 @@ def main() -> int:
             rendered = converter(str(pdf))
             text, _ext, images = text_from_rendered(rendered)
             md_path, n_images = write_outputs(pdf, text, images or {})
-            rel = md_path.relative_to(ROOT)
-            print(f"  -> {rel} ({len(text):,} chars, {n_images} images)")
+            print(f"  -> {display_path(md_path)} ({len(text):,} chars, {n_images} images)")
         except Exception as e:
             failures.append((pdf, e))
             print(f"  ERROR: {e}", file=sys.stderr)
