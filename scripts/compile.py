@@ -139,6 +139,12 @@ Read the raw source above and compile it into wiki articles following the schema
 """
 
     cost = 0.0
+    got_result = False
+
+    def on_stderr(line: str) -> None:
+        # Surface bundled-CLI stderr so spurious post-compile exit-1 errors
+        # become diagnosable instead of disappearing into the void.
+        print(f"  [cli stderr] {line}")
 
     try:
         async for message in query(
@@ -149,6 +155,7 @@ Read the raw source above and compile it into wiki articles following the schema
                 allowed_tools=["Read", "Write", "Edit", "Glob", "Grep"],
                 permission_mode="acceptEdits",
                 max_turns=30,
+                stderr=on_stderr,
             ),
         ):
             if isinstance(message, AssistantMessage):
@@ -157,11 +164,17 @@ Read the raw source above and compile it into wiki articles following the schema
                         pass  # compilation output - LLM writes files directly
             elif isinstance(message, ResultMessage):
                 cost = message.total_cost_usd or 0.0
+                got_result = True
                 print(f"  Tokens: {format_token_usage(message.usage)}")
                 print(f"  Cost*:  ${cost:.4f}")
     except Exception as e:
         print(f"  Error: {e}")
-        return 0.0
+        # Fall through to state save when the model already returned a
+        # ResultMessage — the work was billed, articles were written, and
+        # we don't want to re-bill on the next run. The bundled Claude
+        # Code CLI sometimes exits 1 in cleanup after a successful query.
+        if not got_result:
+            return 0.0
 
     # Update state. Key is the path relative to the repo root so different
     # buckets (raw/daily/foo.md vs raw/clippings/foo.md) can't collide.
