@@ -4,7 +4,7 @@
 
 ## Demo
 
-[![Watch the demo on YouTube](https://img.youtube.com/vi/nnP8gZIgA-c/maxresdefault.jpg)](https://youtu.be/nnP8gZIgA-c)
+[![Watch the demo on YouTube](https://img.youtube.com/vi/qhCuZ4RUVwE/maxresdefault.jpg)](https://youtu.be/qhCuZ4RUVwE)
 
 Wanted to share a pattern that's been working well for me.
 
