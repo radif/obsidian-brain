@@ -1,5 +1,7 @@
 # obsidian-brain command runner — see `just --list`
 
+set positional-arguments := true
+
 # Default: show available recipes
 default:
     @just --list
@@ -70,7 +72,7 @@ transcript url_or_id:
 
 # Convert PDFs in raw/research/research-papers/ into sibling .md files via marker
 extract-papers *args:
-    uv run scripts/extract-papers.py {{args}}
+    uv run scripts/extract-papers.py "$@"
 
 # Bulk-transcribe every video in a YouTube channel into raw/transcripts/
 transcribe-channel channel_url:
