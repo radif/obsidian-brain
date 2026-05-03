@@ -2,6 +2,10 @@
 
 **Your AI conversations compile themselves into a searchable knowledge base.**
 
+## Demo
+
+[![Watch the demo on YouTube](https://img.youtube.com/vi/nnP8gZIgA-c/maxresdefault.jpg)](https://youtu.be/nnP8gZIgA-c)
+
 Wanted to share a pattern that's been working well for me.
 
 I asked Claude to create a slash command — `/connect-obsidian-brain` at the user level — which loads the context of this self-compiling knowledge base into any project I'm working in: how I look at problems, my coding style, and my angle of attack.
