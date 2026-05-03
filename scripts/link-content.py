@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -44,6 +45,28 @@ SKELETON_SUBDIRS = [
     "knowledge/qa",
     "notes",
 ]
+
+# Project overlay layout (optional). When the content repo has a `project/`
+# directory matching this layout, link-content.py mirrors each item into the
+# structural repo with individual symlinks so Claude Code's discovery rules
+# (which only look in the structural working dir) can find them.
+#
+# Each tuple is (content_subpath, structural_target, item_kind):
+#   - "files":    glob for matching files; symlink each one by basename
+#   - "dirs":     glob for child directories; symlink each one by basename
+#   - "single":   single file/dir; symlink at exact target path
+#
+# Adding a new overlay surface here is a one-line change.
+PROJECT_OVERLAY = [
+    ("project/scripts/*.py", "scripts", "files"),
+    ("project/commands/*.md", ".claude/commands", "files"),
+    ("project/skills/*",      ".claude/skills",   "dirs"),
+    ("project/justfile",      "project.justfile", "single"),
+]
+
+# Sentinel comments that bracket the auto-managed block in .git/info/exclude.
+EXCLUDE_BEGIN = "# >>> obsidian-brain project overlay (managed by scripts/link-content.py)"
+EXCLUDE_END = "# <<< end project overlay"
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -128,8 +151,70 @@ def run_linked(content_path: Path, init: bool) -> int:
     print(f"linking obsidian-brain -> {content}")
     for name in CONTENT_DIRS:
         link_or_verify(ROOT / name, content / name)
+    link_project_overlay(content)
     print("\ndone. sanity check: just compile-dry")
     return 0
+
+
+# ── Project overlay (optional) ───────────────────────────────────────────
+
+def link_project_overlay(content: Path) -> None:
+    """Symlink project-specific tooling from <content>/project/ into the
+    structural repo. Skips silently if no `project/` dir in content. Records
+    every symlink in .git/info/exclude so it doesn't pollute git status."""
+    project_root = content / "project"
+    if not project_root.is_dir():
+        return
+    print(f"\nlinking project overlay from {project_root}")
+    linked: list[Path] = []
+    for content_glob, target_subpath, kind in PROJECT_OVERLAY:
+        if kind == "single":
+            src_path = content / content_glob
+            if not src_path.exists():
+                continue
+            target = ROOT / target_subpath
+            target.parent.mkdir(parents=True, exist_ok=True)
+            link_or_verify(target, src_path)
+            linked.append(target)
+            continue
+        # glob-based
+        sources = sorted((content).glob(content_glob))
+        if not sources:
+            continue
+        target_dir = ROOT / target_subpath
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for src in sources:
+            if kind == "files" and not src.is_file():
+                continue
+            if kind == "dirs" and not src.is_dir():
+                continue
+            target = target_dir / src.name
+            link_or_verify(target, src)
+            linked.append(target)
+    write_exclude_block(linked)
+
+
+def write_exclude_block(linked: list[Path]) -> None:
+    """Maintain a managed block in .git/info/exclude listing every overlay
+    symlink. Per-clone, never committed — keeps the structural repo's tracked
+    .gitignore generic and free of project-specific paths."""
+    exclude_file = ROOT / ".git" / "info" / "exclude"
+    exclude_file.parent.mkdir(parents=True, exist_ok=True)
+    existing = exclude_file.read_text(encoding="utf-8") if exclude_file.exists() else ""
+    # Strip any prior managed block.
+    pattern = re.compile(
+        rf"\n?{re.escape(EXCLUDE_BEGIN)}.*?{re.escape(EXCLUDE_END)}\n?",
+        re.DOTALL,
+    )
+    cleaned = pattern.sub("\n", existing).rstrip() + "\n" if existing.strip() else ""
+    if not linked:
+        exclude_file.write_text(cleaned, encoding="utf-8")
+        return
+    rel_paths = sorted(str(p.relative_to(ROOT)) for p in linked)
+    block_lines = [EXCLUDE_BEGIN, *rel_paths, EXCLUDE_END]
+    new_content = (cleaned.rstrip() + "\n\n" if cleaned.strip() else "") + "\n".join(block_lines) + "\n"
+    exclude_file.write_text(new_content, encoding="utf-8")
+    print(f"  recorded {len(rel_paths)} overlay paths in .git/info/exclude")
 
 
 # ── Solo-mode helpers ────────────────────────────────────────────────────

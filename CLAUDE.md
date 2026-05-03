@@ -20,6 +20,22 @@ This working directory is a **public structural repo** (scripts, hooks, docs). T
 
 Either way, scripts and hooks operate through the paths transparently — path construction is lexical (`ROOT_DIR / "raw"`), so `relative_to(ROOT_DIR)` still produces stable keys like `raw/daily/2026-04-10.md` in `state.json` regardless of mode.
 
+### Project overlay (linked mode only)
+
+Some content repos carry their own project-specific tooling — Python scripts that only make sense for that project, slash commands tied to its bespoke workflows, justfile recipes, etc. These live at `<content-repo>/project/`:
+
+```
+<content-repo>/project/
+├── scripts/<name>.py        → symlinked into <structural>/scripts/<name>.py
+├── commands/<name>.md       → symlinked into <structural>/.claude/commands/<name>.md
+├── skills/<name>/           → symlinked into <structural>/.claude/skills/<name>/
+└── justfile                 → symlinked into <structural>/project.justfile
+```
+
+`scripts/link-content.py` mirrors each item with an individual symlink so Claude Code's discovery rules (which only look in the structural working dir) can find them, and records every linked path in `.git/info/exclude` (per-clone, not committed) so the structural repo's tracked `.gitignore` stays generic. The structural `justfile` does `import? 'project.justfile'` — silently skipped when no overlay is linked.
+
+Project-specific scripts that import `config` / `utils` should use `Path(__file__).parent` (without `.resolve()`) — `.resolve()` would follow the symlink into the content repo, where `config.py` doesn't exist.
+
 Don't hardcode any absolute paths in docs, scripts, or generated content — users clone this repo to arbitrary locations. Refer to the structural repo's working directory as "this repo", and the content repo by its conventional relative path (`../obsidian-brain-content`) or with a placeholder like `<content-repo>/`.
 
 Implications for agent work:

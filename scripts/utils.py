@@ -138,10 +138,17 @@ def list_raw_files() -> list[Path]:
     organize their contents with sub-folders (e.g. raw/research/<topic>/).
     Any directory whose name is in _RAW_SKIP_DIRS is pruned at any depth,
     so attachment folders like raw/clippings/assets/ stay out of the queue.
+
+    Files with byte-identical content are deduplicated: the first occurrence
+    (by sorted bucket then sorted recursive path) is kept, later duplicates
+    are dropped. This lets the same transcript live in `raw/transcripts/`
+    *and* be co-located with its webinar in `raw/webinars/<year>/<event>/`
+    without compile ingesting it twice.
     """
     if not RAW_DIR.exists():
         return []
     files: list[Path] = []
+    seen_hashes: set[str] = set()
     for bucket in sorted(RAW_DIR.iterdir()):
         if not bucket.is_dir() or bucket.name in _RAW_SKIP_DIRS:
             continue
@@ -149,6 +156,10 @@ def list_raw_files() -> list[Path]:
             rel_parts = md.relative_to(bucket).parts
             if any(part in _RAW_SKIP_DIRS for part in rel_parts):
                 continue
+            h = file_hash(md)
+            if h in seen_hashes:
+                continue
+            seen_hashes.add(h)
             files.append(md)
     return files
 

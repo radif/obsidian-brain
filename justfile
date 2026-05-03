@@ -2,6 +2,11 @@
 
 set positional-arguments := true
 
+# Project-specific recipes from <content>/project/justfile, surfaced into the
+# structural repo as project.justfile by scripts/link-content.py. Silently
+# skipped when no overlay is linked (solo mode, generic content repo).
+import? 'project.justfile'
+
 # Default: show available recipes
 default:
     @just --list
