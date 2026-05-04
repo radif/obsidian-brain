@@ -37,22 +37,6 @@ INDEX_FILE = KNOWLEDGE_DIR / "index.md"
 LOG_FILE = KNOWLEDGE_DIR / "log.md"
 STATE_FILE = CONTENT_DIR / "state.json"
 
-# ── One-shot migration: state.json moved out of scripts/ into the content
-# dir in 2026-05. On any machine/KB clone whose state still lives at the
-# legacy path, relocate it on first import. Idempotent — once the new file
-# exists this is a single stat() call per process. Safe to delete this
-# block once every KB has been migrated and pushed.
-_LEGACY_STATE_FILE = SCRIPTS_DIR / "state.json"
-if _LEGACY_STATE_FILE.exists() and not STATE_FILE.exists():
-    import shutil as _shutil
-    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _shutil.move(str(_LEGACY_STATE_FILE), str(STATE_FILE))
-    print(
-        f"[config] Migrated compile state: "
-        f"{_LEGACY_STATE_FILE.relative_to(ROOT_DIR)} → {STATE_FILE} "
-        f"(commit it in the content repo to sync across machines)."
-    )
-
 # ── Timezone ───────────────────────────────────────────────────────────
 TIMEZONE = "America/Chicago"
 
