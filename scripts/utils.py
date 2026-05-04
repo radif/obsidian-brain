@@ -10,6 +10,7 @@ from pathlib import Path
 from config import (
     CONCEPTS_DIR,
     CONNECTIONS_DIR,
+    CONTENT_DIR,
     INDEX_FILE,
     KNOWLEDGE_DIR,
     LOG_FILE,
@@ -19,8 +20,18 @@ from config import (
 )
 
 # Subdirectories under raw/ that should not be scanned for source markdown
-# (e.g. assets/ is where image attachments live).
+# (e.g. assets/ is where image attachments live). Content repos can extend
+# this set with a `<content-repo>/project/raw-skip.txt` file — one directory
+# name per line, `#` comments allowed. Lets a content repo carry project-
+# specific skips (e.g. a vendored corpus) without modifying this file.
 _RAW_SKIP_DIRS = {"assets"}
+
+_PROJECT_SKIP_FILE = CONTENT_DIR / "project" / "raw-skip.txt"
+if _PROJECT_SKIP_FILE.is_file():
+    for _ln in _PROJECT_SKIP_FILE.read_text(encoding="utf-8").splitlines():
+        _ln = _ln.strip()
+        if _ln and not _ln.startswith("#"):
+            _RAW_SKIP_DIRS.add(_ln)
 
 
 # ── State management ──────────────────────────────────────────────────

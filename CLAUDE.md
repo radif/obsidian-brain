@@ -29,10 +29,13 @@ Some content repos carry their own project-specific tooling — Python scripts t
 ├── scripts/<name>.py        → symlinked into <structural>/scripts/<name>.py
 ├── commands/<name>.md       → symlinked into <structural>/.claude/commands/<name>.md
 ├── skills/<name>/           → symlinked into <structural>/.claude/skills/<name>/
-└── justfile                 → symlinked into <structural>/project.justfile
+├── justfile                 → symlinked into <structural>/project.justfile
+└── raw-skip.txt             → read directly by scripts/utils.py
 ```
 
-`scripts/link-content.py` mirrors each item with an individual symlink so Claude Code's discovery rules (which only look in the structural working dir) can find them, and records every linked path in `.git/info/exclude` (per-clone, not committed) so the structural repo's tracked `.gitignore` stays generic. The structural `justfile` does `import? 'project.justfile'` — silently skipped when no overlay is linked.
+`scripts/link-content.py` mirrors each *symlinked* item above so Claude Code's discovery rules (which only look in the structural working dir) can find them, and records every linked path in `.git/info/exclude` (per-clone, not committed) so the structural repo's tracked `.gitignore` stays generic. The structural `justfile` does `import? 'project.justfile'` — silently skipped when no overlay is linked.
+
+`project/raw-skip.txt` is *read*, not symlinked — `scripts/utils.py` opens it at import time and unions each non-comment line into `_RAW_SKIP_DIRS`, so a content repo can declare bucket-name skips (e.g. a vendored corpus that lives under `raw/` for editor convenience but should never be compiled) without touching the structural repo.
 
 Project-specific scripts that import `config` / `utils` should use `Path(__file__).parent` (without `.resolve()`) — `.resolve()` would follow the symlink into the content repo, where `config.py` doesn't exist.
 
