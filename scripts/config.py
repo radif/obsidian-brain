@@ -26,9 +26,16 @@ SCRIPTS_DIR = ROOT_DIR / "scripts"
 HOOKS_DIR = ROOT_DIR / "hooks"
 AGENTS_FILE = ROOT_DIR / "AGENTS.md"
 
+# Content directory: holds raw/, knowledge/, notes/, and the compile state.
+# In linked mode this resolves through the symlink to the content repo root;
+# in solo mode it equals ROOT_DIR. The compile state lives here (not under
+# scripts/) so it travels with the content repo and stays in sync across
+# machines.
+CONTENT_DIR = RAW_DIR.resolve().parent
+
 INDEX_FILE = KNOWLEDGE_DIR / "index.md"
 LOG_FILE = KNOWLEDGE_DIR / "log.md"
-STATE_FILE = SCRIPTS_DIR / "state.json"
+STATE_FILE = CONTENT_DIR / "state.json"
 
 # ── Timezone ───────────────────────────────────────────────────────────
 TIMEZONE = "America/Chicago"

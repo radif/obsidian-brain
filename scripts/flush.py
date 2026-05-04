@@ -162,7 +162,8 @@ def maybe_trigger_compilation() -> None:
     # relative to the repo root (e.g. "raw/daily/2026-04-10.md").
     today_name = f"{now.strftime('%Y-%m-%d')}.md"
     today_key = str((DAILY_DIR / today_name).relative_to(ROOT))
-    compile_state_file = SCRIPTS_DIR / "state.json"
+    # Compile state lives next to raw/, not under scripts/ — see config.py.
+    compile_state_file = (ROOT / "raw").resolve().parent / "state.json"
     if compile_state_file.exists():
         try:
             compile_state = json.loads(compile_state_file.read_text(encoding="utf-8"))

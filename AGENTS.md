@@ -612,15 +612,13 @@ Sets up either linked mode (symlinks to a separate content repo) or solo mode (r
 
 ## State Tracking
 
-`scripts/state.json` tracks:
-- `ingested` - map of daily log filenames to SHA-256 hashes, compilation timestamps, and costs
+`state.json` lives at the content directory root (i.e., `RAW_DIR.resolve().parent` — the content repo in linked mode, the structural-repo root in solo mode), so compile state travels with the content and stays in sync across machines. It tracks:
+- `ingested` - map of source file paths (relative to the structural repo root) to SHA-256 hashes, compilation timestamps, and costs
 - `query_count` - total queries run
 - `last_lint` - timestamp of most recent lint
 - `total_cost` - cumulative API cost
 
-`scripts/last-flush.json` tracks flush deduplication (session_id + timestamp).
-
-Both are gitignored and regenerated automatically.
+`scripts/last-flush.json` tracks flush deduplication (session_id + timestamp). It's host-local and gitignored; not synced across machines.
 
 ---
 

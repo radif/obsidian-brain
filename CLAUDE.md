@@ -53,7 +53,7 @@ Paths under `raw/`, `knowledge/`, and `notes/` are gitignored here and resolve e
 |------|-------|------|
 | `raw/` `knowledge/` `notes/` | symlinks *or* real dirs | Gitignored here. Set up by `scripts/link-content.py` in either mode. |
 | `notes/*.md` | Human | Freeform scratch space. Outside `RAW_DIR`; not scanned by `list_raw_files()` and never enters the compile/query/lint pipeline. Use for working drafts that shouldn't become compiled knowledge. |
-| `raw/daily/YYYY-MM-DD.md` | Human + `flush.py` | Conversation logs. Append only. Hashed by `scripts/state.json`. The SessionStart hook auto-injects today's file into the next session. |
+| `raw/daily/YYYY-MM-DD.md` | Human + `flush.py` | Conversation logs. Append only. Hashed by the content repo's `state.json`. The SessionStart hook auto-injects today's file into the next session. |
 | `raw/clippings/*.md` | Obsidian Web Clipper + human | Web article captures. Same immutability + compile rules. Not auto-injected. |
 | `raw/research/*.md` | Human | Research notes, papers, long-form investigation. Treated as a standard source bucket by compile. |
 | `raw/<new-bucket>/*.md` | Whoever creates the bucket | Any immediate subdir of `raw/` is auto-discovered by `list_raw_files()` in `scripts/utils.py`. Adding a new source type is `mkdir raw/<name>` — no code changes needed. |
@@ -64,8 +64,8 @@ Paths under `raw/`, `knowledge/`, and `notes/` are gitignored here and resolve e
 | `knowledge/index.md` | Compile/query sub-agents | Master catalog. Injected into every session. Sub-agents update it. |
 | `knowledge/log.md` | Compile/query sub-agents | Append-only build log. |
 | `scripts/*.py` | Human | Source. Edit freely. |
-| `scripts/state.json` | Scripts | Compile cache. Keys are paths relative to repo root (e.g. `raw/daily/2026-04-10.md`). Never hand-edit. |
-| `scripts/last-flush.json`, `scripts/flush.log` | Scripts | Runtime artifacts. Ignore. |
+| `state.json` (content-repo root in linked mode, structural-repo root in solo mode) | Scripts | Compile cache. Keys are paths relative to the structural repo root (e.g. `raw/daily/2026-04-10.md`). Tracked in the content repo so compile state syncs across machines. Never hand-edit. |
+| `scripts/last-flush.json`, `scripts/flush.log` | Scripts | Runtime artifacts (host-local: dedup lock + flush debug log). Ignore. |
 | `hooks/*.py` | Human | Edit carefully — changes affect every session. Timeouts from `.claude/settings.json`: SessionStart 15s, PreCompact 10s, SessionEnd 10s. Hooks make no LLM/API calls (only local I/O + subprocess spawns); the heavy work happens in the detached `flush.py`. |
 | `reports/` | `lint.py` | Generated lint reports. |
 
