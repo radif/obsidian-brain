@@ -139,7 +139,7 @@ Read the raw source above and compile it into wiki articles following the schema
 """
 
     cost = 0.0
-    got_result = False
+    succeeded = False
 
     def on_stderr(line: str) -> None:
         # Surface bundled-CLI stderr so spurious post-compile exit-1 errors
@@ -164,17 +164,24 @@ Read the raw source above and compile it into wiki articles following the schema
                         pass  # compilation output - LLM writes files directly
             elif isinstance(message, ResultMessage):
                 cost = message.total_cost_usd or 0.0
-                got_result = True
+                succeeded = not message.is_error
                 print(f"  Tokens: {format_token_usage(message.usage)}")
                 print(f"  Cost*:  ${cost:.4f}")
+                if message.is_error:
+                    print(f"  Result was an error (subtype={message.subtype}); not marking compiled.")
     except Exception as e:
         print(f"  Error: {e}")
         # Fall through to state save when the model already returned a
-        # ResultMessage — the work was billed, articles were written, and
-        # we don't want to re-bill on the next run. The bundled Claude
-        # Code CLI sometimes exits 1 in cleanup after a successful query.
-        if not got_result:
+        # successful ResultMessage — the work was billed, articles were
+        # written, and we don't want to re-bill on the next run. The
+        # bundled Claude Code CLI sometimes exits 1 in cleanup after a
+        # successful query. An is_error ResultMessage (rate limit,
+        # out-of-credits, max-turns) does NOT count as success.
+        if not succeeded:
             return 0.0
+
+    if not succeeded:
+        return 0.0
 
     # Update state. Key is the path relative to the repo root so different
     # buckets (raw/daily/foo.md vs raw/clippings/foo.md) can't collide.
