@@ -75,9 +75,9 @@ init-content path:
 transcript url_or_id:
     uv run python scripts/transcript.py "{{url_or_id}}"
 
-# Convert PDFs in raw/research/research-papers/ into sibling .md files via marker
-extract-papers *args:
-    uv run scripts/extract-papers.py "$@"
+# Convert a PDF file to Markdown via marker (output: same dir, .md extension, assets in sibling assets/<stem>/)
+pdf-to-md path:
+    uv run scripts/pdf-to-md.py "{{path}}"
 
 # Bulk-transcribe every video in a YouTube channel into raw/transcripts/
 transcribe-channel channel_url:
