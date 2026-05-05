@@ -23,14 +23,21 @@ Usage:
     just pdf-to-md path/to/file.pdf
     uv run scripts/pdf-to-md.py path/to/file.pdf
     uv run scripts/pdf-to-md.py file.pdf --force
+
+Defaults to CPU because marker's surya layout encoder hits MPS attention bugs
+on certain PDFs. Override with `TORCH_DEVICE=mps just pdf-to-md ...` if you
+want to try the GPU path.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
+
+os.environ.setdefault("TORCH_DEVICE", "cpu")
 
 
 def rewrite_image_paths(text: str, image_names: list[str], rel_prefix: str) -> str:
