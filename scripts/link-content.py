@@ -36,7 +36,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-CONTENT_DIRS = ["raw", "knowledge", "notes"]
+CONTENT_DIRS = ["raw", "knowledge", "notes", "projects"]
 SKELETON_SUBDIRS = [
     "raw/daily",
     "raw/clippings",
@@ -44,6 +44,7 @@ SKELETON_SUBDIRS = [
     "knowledge/connections",
     "knowledge/qa",
     "notes",
+    "projects",
 ]
 
 # Project overlay layout (optional). When the content repo has a `project/`

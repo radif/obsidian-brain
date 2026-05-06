@@ -56,8 +56,9 @@ Paths under `raw/`, `knowledge/`, and `notes/` are gitignored here and resolve e
 
 | Path | Owner | Rule |
 |------|-------|------|
-| `raw/` `knowledge/` `notes/` | symlinks *or* real dirs | Gitignored here. Set up by `scripts/link-content.py` in either mode. |
-| `notes/*.md` | Human | Freeform scratch space. Outside `RAW_DIR`; not scanned by `list_raw_files()` and never enters the compile/query/lint pipeline. Use for working drafts that shouldn't become compiled knowledge. |
+| `raw/` `knowledge/` `notes/` `projects/` | symlinks *or* real dirs | Gitignored here. Set up by `scripts/link-content.py` in either mode. |
+| `notes/*.md` | Human | Freeform scratch space (TODO lists, session-context dumps, working drafts). Outside `RAW_DIR`; not scanned by `list_raw_files()` and never enters the compile/query/lint pipeline. |
+| `projects/<project-name>/` | Human | Active multi-stage project work — content drafts, HTML/CSS layouts, build scripts, versioned outputs. One subdirectory per project. Outside `RAW_DIR`; not scanned by `list_raw_files()` and never enters the compile/query/lint pipeline. Use for brochures, web rebuilds, design exports, anything with its own iteration trail and source-and-output artifacts. |
 | `raw/daily/YYYY-MM-DD.md` | Human + `flush.py` | Conversation logs. Append only. Hashed by the content repo's `state.json`. The SessionStart hook auto-injects today's file into the next session. |
 | `raw/clippings/*.md` | Obsidian Web Clipper + human | Web article captures. Same immutability + compile rules. Not auto-injected. |
 | `raw/research/*.md` | Human | Research notes, papers, long-form investigation. Treated as a standard source bucket by compile. |
