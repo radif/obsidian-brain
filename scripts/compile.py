@@ -295,17 +295,23 @@ def main():
     # gives the user advance notice of the cost profile.
     articles_now = list_wiki_articles()
     total_bytes_now = sum(p.stat().st_size for p in articles_now)
+    threshold_kb = INLINE_BYTES_THRESHOLD // 1000
+    wiki_kb = total_bytes_now / 1000
     if args.mode == "auto":
-        will_be = "inline" if total_bytes_now < INLINE_BYTES_THRESHOLD else "lookup"
+        if total_bytes_now < INLINE_BYTES_THRESHOLD:
+            will_be = "inline"
+            comparison = f"{wiki_kb:.0f} KB < {threshold_kb} KB threshold"
+        else:
+            will_be = "lookup"
+            comparison = f"{wiki_kb:.0f} KB ≥ {threshold_kb} KB threshold"
         print(
-            f"\nCompile mode: auto → {will_be} "
-            f"(wiki: {total_bytes_now / 1000:.0f} KB across {len(articles_now)} articles, "
-            f"threshold {INLINE_BYTES_THRESHOLD // 1000} KB)"
+            f"\nCompile mode: {will_be} "
+            f"(auto-selected — wiki {comparison}, {len(articles_now)} articles)"
         )
     else:
         print(
-            f"\nCompile mode: {args.mode} (forced via --mode; "
-            f"wiki: {total_bytes_now / 1000:.0f} KB across {len(articles_now)} articles)"
+            f"\nCompile mode: {args.mode} "
+            f"(forced via --mode — wiki {wiki_kb:.0f} KB, {len(articles_now)} articles)"
         )
 
     if args.dry_run:
