@@ -137,6 +137,11 @@ All commands are wrapped as [`just`](https://github.com/casey/just) recipes. Run
 just compile                    # compile new/changed raw files
 just compile-all                # force full recompile
 just compile-dry                # preview without writing
+# compile.py also accepts --mode={auto,inline,lookup}; auto inlines all
+# existing article bodies into the prompt while the wiki is small (< 500 KB
+# total), then automatically switches to "lookup" mode (index-only prompt;
+# agent Reads articles on demand) once the wiki grows past that threshold.
+# Force a mode with: uv run python scripts/compile.py --mode=lookup
 just ask "question"             # ask the knowledge base
 just ask-save "question"        # ask + save answer to knowledge/qa/
 just lint                       # run all health checks

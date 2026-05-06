@@ -96,9 +96,9 @@ This is a bring-your-own-markdown system. You do not need Claude to capture know
 All commands are wrapped as `just` recipes (see `justfile`). Run `just` to list them. The raw `uv run …` form still works if you need to bypass the wrapper.
 
 ```bash
-just compile                 # compile new/changed daily logs
+just compile                 # compile new/changed daily logs (auto-selects inline vs lookup mode based on wiki size)
 just compile-all             # force full recompile
-just compile-dry             # preview
+just compile-dry             # preview (also reports the mode that would be used)
 just ask "question"          # ask the knowledge base
 just ask-save "question"     # ask + save answer to knowledge/qa/
 just lint                    # all health checks
@@ -113,6 +113,16 @@ just link-content <path>     # linked mode: symlink an existing content repo at 
 ```
 
 First-time setup: `./scripts/setup.sh` installs `just`, `uv`, and Python deps (idempotent). Then `just setup-content` to choose and wire up the content model. See `README.md` for the full walkthrough.
+
+### Compile modes (small vs. large knowledge bases)
+
+`compile.py` exposes `--mode={auto,inline,lookup}` (default `auto`). The mode controls how existing wiki articles are presented to the compiler agent:
+
+- **inline**: every article body is included in the prompt. Maximum grounding, simpler agent task. Becomes expensive (and eventually hits `error_max_turns`) past ~150 articles or ~500 KB of total wiki content.
+- **lookup**: only the index goes in the prompt; the agent uses the Read tool to fetch article bodies on demand. The compile prompt also gains a preamble instructing the agent to identify and Read relevant articles *before* writing. Scales linearly with what each compile actually needs.
+- **auto** (default): inline if total wiki bytes < `INLINE_BYTES_THRESHOLD` (500 KB, configurable at the top of `compile.py`), else lookup. Re-evaluated per file, so a long batch crossing the threshold mid-run flips correctly.
+
+`just compile-dry` reports the mode that would be used. Force a specific mode with `uv run python scripts/compile.py --mode=lookup` (or `inline`) for debugging or for one-off batches that benefit from the other behaviour.
 
 Each `just` recipe also has a matching slash command in `.claude/commands/<name>.md` and a matching agent skill in `.claude/skills/kb-<name>/` — so inside Claude Code you can invoke them as `/compile`, `/ask`, `/lint`, `/flush`, `/setup`, etc. The command/skill files are thin wrappers over the `just` recipes; modify the recipe in `justfile`, the wrappers stay valid.
 

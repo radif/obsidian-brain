@@ -514,18 +514,30 @@ async for message in query(
 ):
 ```
 
-- Builds a prompt with: AGENTS.md schema, current index, all existing articles, and the daily log
+- Builds a prompt with: AGENTS.md schema, current index, the existing-articles section (see modes below), and the daily log
 - Claude reads the daily log, decides what concepts to extract, and writes files directly
 - `permission_mode="acceptEdits"` auto-approves all file operations
 - Incremental: tracks SHA-256 hashes of daily logs in `state.json`, skips unchanged files
-- Cost: ~$0.45-0.65 per daily log (increases as KB grows)
+- Cost: ~$0.45-0.65 per daily log on small KBs in inline mode; per-file cost grows roughly with wiki size in inline mode and stays roughly constant in lookup mode (see modes below)
+
+**Compile modes (inline vs. lookup):**
+
+The existing-articles section of the prompt is built by `build_articles_context(mode)` in `compile.py`. The `--mode` flag selects between:
+
+- `inline`: every wiki article body is included in the prompt. Maximum grounding; the agent never needs to Read for cross-linking. Becomes expensive at scale and eventually exhausts `max_turns`.
+- `lookup`: the existing-articles section is replaced with a one-paragraph instruction telling the agent that bodies are not inlined and that it should Read them on demand from `knowledge/concepts/<slug>.md`, `knowledge/connections/<slug>.md`, or `knowledge/qa/<slug>.md`. The Task section also gains a preamble enforcing a discovery-first step ("identify which existing articles this source may relate to … then use the Read tool … only after Reading should you proceed"). Scales linearly with what each compile actually needs to touch rather than with total wiki size.
+- `auto` (default): inline when total wiki bytes < `INLINE_BYTES_THRESHOLD` (500 KB at the top of `compile.py`), else lookup. Re-evaluated per file — a long batch that crosses the threshold mid-run will flip correctly.
+
+The trade-off in `lookup` mode is silent quality drift if the index summaries are too thin to surface relevant articles. The discovery-first preamble plus a future lint check for under-linked new articles are the recommended mitigations.
 
 **CLI:**
 ```bash
-uv run python scripts/compile.py              # compile new/changed only
+uv run python scripts/compile.py              # compile new/changed only (mode=auto)
 uv run python scripts/compile.py --all        # force recompile everything
 uv run python scripts/compile.py --file raw/daily/2026-04-01.md
 uv run python scripts/compile.py --dry-run
+uv run python scripts/compile.py --mode=lookup   # force lookup mode
+uv run python scripts/compile.py --mode=inline   # force inline mode
 ```
 
 ### query.py - Index-Guided Retrieval

@@ -40,11 +40,48 @@ from utils import (
 # ── Paths for the LLM to use ──────────────────────────────────────────
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
+# Switching point between inline and lookup modes when --mode=auto. If total
+# bytes of existing wiki articles is below this, the agent receives every
+# article body inline (fast, more grounding for small KBs); above, it gets only
+# the index and reads bodies on demand (scales past ~150+ articles where inline
+# starts exhausting max_turns).
+INLINE_BYTES_THRESHOLD = 500_000
 
-async def compile_source(source_path: Path, state: dict) -> float:
+
+def build_articles_context(mode: str) -> tuple[str, str, int]:
+    """Build the existing-articles section of the compile prompt.
+
+    Returns ``(text, resolved_mode, total_bytes)``. If ``mode == "auto"``,
+    resolves to ``"inline"`` when total wiki bytes < ``INLINE_BYTES_THRESHOLD``,
+    else ``"lookup"``.
+    """
+    articles = list_wiki_articles()
+    total_bytes = sum(p.stat().st_size for p in articles)
+    if mode == "auto":
+        mode = "inline" if total_bytes < INLINE_BYTES_THRESHOLD else "lookup"
+    if not articles:
+        return "(No existing articles yet)", mode, 0
+    if mode == "inline":
+        parts = [
+            f"### {p.relative_to(KNOWLEDGE_DIR)}\n```markdown\n{p.read_text(encoding='utf-8')}\n```"
+            for p in articles
+        ]
+        return "\n\n".join(parts), mode, total_bytes
+    return (
+        "(Article bodies are NOT included below — only their summaries via the index above. "
+        "Use the Read tool on `knowledge/concepts/<slug>.md`, `knowledge/connections/<slug>.md`, "
+        "or `knowledge/qa/<slug>.md` to fetch any article body you need to update or reference.)",
+        mode,
+        total_bytes,
+    )
+
+
+async def compile_source(source_path: Path, state: dict, mode: str) -> float:
     """Compile a single raw source document into knowledge articles.
 
-    Returns the API cost of the compilation.
+    Returns the API cost of the compilation. ``mode`` is one of ``"auto"``,
+    ``"inline"``, or ``"lookup"`` and controls whether existing article bodies
+    are inlined into the prompt or fetched on demand by the agent via Read.
     """
     from claude_agent_sdk import (
         AssistantMessage,
@@ -59,19 +96,16 @@ async def compile_source(source_path: Path, state: dict) -> float:
     source_bucket = source_rel.parts[1] if len(source_rel.parts) >= 2 else "unknown"
     schema = AGENTS_FILE.read_text(encoding="utf-8")
     wiki_index = read_wiki_index()
-
-    # Read existing articles for context
-    existing_articles_context = ""
-    existing = {}
-    for article_path in list_wiki_articles():
-        rel = article_path.relative_to(KNOWLEDGE_DIR)
-        existing[str(rel)] = article_path.read_text(encoding="utf-8")
-
-    if existing:
-        parts = []
-        for rel_path, content in existing.items():
-            parts.append(f"### {rel_path}\n```markdown\n{content}\n```")
-        existing_articles_context = "\n\n".join(parts)
+    existing_articles_context, resolved_mode, _ = build_articles_context(mode)
+    task_preamble = ""
+    if resolved_mode == "lookup":
+        task_preamble = (
+            "**Lookup mode**: existing article bodies are NOT inlined. Before writing "
+            "or updating anything, identify which existing articles this source may "
+            "relate to (by slug from the index), then use the Read tool to fetch each "
+            "one. Only after Reading the articles you intend to touch should you "
+            "proceed with creating, updating, or cross-linking.\n\n"
+        )
 
     timestamp = now_iso()
 
@@ -99,7 +133,7 @@ and extract knowledge into structured wiki articles.
 
 ## Your Task
 
-Read the raw source above and compile it into wiki articles following the schema exactly.
+{task_preamble}Read the raw source above and compile it into wiki articles following the schema exactly.
 
 ### Rules:
 
@@ -202,6 +236,20 @@ def main():
     parser.add_argument("--all", action="store_true", help="Force recompile all sources")
     parser.add_argument("--file", type=str, help="Compile a specific raw source file")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be compiled")
+    parser.add_argument(
+        "--mode",
+        choices=["auto", "inline", "lookup"],
+        default="auto",
+        help=(
+            "How existing wiki articles are presented to the compiler agent. "
+            "auto (default): inline if total wiki bytes < %d, else lookup. "
+            "inline: every article body included in the prompt — best grounding, "
+            "doesn't scale past ~150 articles. "
+            "lookup: only the index goes into the prompt; the agent reads bodies "
+            "on demand via the Read tool — scales linearly with what each compile "
+            "actually needs." % INLINE_BYTES_THRESHOLD
+        ),
+    )
     args = parser.parse_args()
 
     state = load_state()
@@ -241,6 +289,25 @@ def main():
     for f in to_compile:
         print(f"  - {f.relative_to(ROOT_DIR)}")
 
+    # Report mode resolution against current wiki size. The actual mode used per
+    # file is re-resolved inside compile_source (so an --mode=auto run that
+    # crosses the threshold mid-batch flips correctly), but reporting once here
+    # gives the user advance notice of the cost profile.
+    articles_now = list_wiki_articles()
+    total_bytes_now = sum(p.stat().st_size for p in articles_now)
+    if args.mode == "auto":
+        will_be = "inline" if total_bytes_now < INLINE_BYTES_THRESHOLD else "lookup"
+        print(
+            f"\nCompile mode: auto → {will_be} "
+            f"(wiki: {total_bytes_now / 1000:.0f} KB across {len(articles_now)} articles, "
+            f"threshold {INLINE_BYTES_THRESHOLD // 1000} KB)"
+        )
+    else:
+        print(
+            f"\nCompile mode: {args.mode} (forced via --mode; "
+            f"wiki: {total_bytes_now / 1000:.0f} KB across {len(articles_now)} articles)"
+        )
+
     if args.dry_run:
         return
 
@@ -248,7 +315,7 @@ def main():
     total_cost = 0.0
     for i, source_path in enumerate(to_compile, 1):
         print(f"\n[{i}/{len(to_compile)}] Compiling {source_path.relative_to(ROOT_DIR)}...")
-        cost = asyncio.run(compile_source(source_path, state))
+        cost = asyncio.run(compile_source(source_path, state, args.mode))
         total_cost += cost
         print(f"  Done.")
 
