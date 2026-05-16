@@ -50,6 +50,18 @@ Implications for agent work:
 - **Setup.** `just setup-content` (interactive prompt), `just solo` (solo mode), `just init-content <path>` (new linked), `just link-content <path>` (existing linked). All go through `scripts/link-content.py`; idempotent, refuses to silently cross-switch modes.
 - **A broken symlink** (content repo path moved or deleted) makes scripts fail on file I/O. `ls -la raw` is the first diagnostic for "file not found" errors.
 
+### Default working directory and what goes where (linked mode)
+
+**In linked mode the default working directory is the content repo, not this structural repo.** Run `cd "$(readlink raw)/.."` at the start of any session whose work isn't strictly engine maintenance. Anything that produces files (Playwright captures, scripts that write output, content drafts, browser sessions, screenshots) should be launched from the content repo so its output lands there by default. This structural repo's working directory is appropriate only when actively editing engine code (`scripts/`, `hooks/`, `AGENTS.md`, this `CLAUDE.md`, the structural `justfile`, `.claude/`).
+
+**Project-specific information belongs in the content repo, not here.** This file stays general-purpose and reusable across any content repo that links into the engine. Concretely, the following NEVER go in this structural CLAUDE.md, AGENTS.md, or any other tracked structural file:
+
+- Specific business names, brand voice rules, contact info, website URLs, license numbers
+- Per-project directory rows in the directory-contract table (a project that adds `raw/website/`, `raw/podcast/`, etc. documents that in *its* content-repo CLAUDE.md)
+- Per-project script behavior, justfile recipes, or workflow docs (use the `project/` overlay)
+
+If a piece of information would not make sense to a different user of this engine, it belongs in their content repo, not here. **In solo mode** the separation collapses (there is no second repo) and the structural repo is also the content repo; the rule is moot.
+
 ## Directory contract
 
 Paths under `raw/`, `knowledge/`, and `notes/` are gitignored here and resolve either through symlinks into a content repo (linked mode) or to real directories in this checkout (solo mode). See "Content models" above. Writes to those paths don't land in this repo either way — in linked mode they land in the content repo (commit there); in solo mode they stay local.
