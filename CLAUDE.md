@@ -68,7 +68,7 @@ Paths under `raw/`, `knowledge/`, and `notes/` are gitignored here and resolve e
 | `knowledge/connections/` | `compile.py` sub-agent | Same — LLM-owned. |
 | `knowledge/qa/` | `query.py --file-back` sub-agent | Same — LLM-owned. |
 | `knowledge/index.md` | Compile/query sub-agents | Master catalog. Injected into every session. Sub-agents update it. |
-| `knowledge/log.md` | Compile/query sub-agents | Append-only build log. |
+| `knowledge/log.md` | `compile.py` / `query.py` runner | Append-only build log. The runner writes the entry after the sub-agent returns; sub-agents must NOT Read, Write, or Edit this file. Edits by a sub-agent would echo the full post-edit file via `tool_use_result` and blow the SDK's 1 MiB per-message buffer once log.md crosses ~960 KB. |
 | `scripts/*.py` | Human | Source. Edit freely. |
 | `state.json` (content-repo root in linked mode, structural-repo root in solo mode) | Scripts | Compile cache. Keys are paths relative to the structural repo root (e.g. `raw/daily/2026-04-10.md`). Tracked in the content repo so compile state syncs across machines. Never hand-edit. |
 | `scripts/last-flush.json`, `scripts/flush.log` | Scripts | Runtime artifacts (host-local: dedup lock + flush debug log). Ignore. |

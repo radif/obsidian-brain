@@ -25,7 +25,7 @@ import asyncio
 import sys
 from pathlib import Path
 
-from config import AGENTS_FILE, CONCEPTS_DIR, CONNECTIONS_DIR, KNOWLEDGE_DIR, RAW_DIR, now_iso
+from config import AGENTS_FILE, CONCEPTS_DIR, CONNECTIONS_DIR, KNOWLEDGE_DIR, LOG_FILE, QA_DIR, RAW_DIR, now_iso
 from utils import (
     COST_DISCLAIMER,
     file_hash,
@@ -46,6 +46,55 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 # the index and reads bodies on demand (scales past ~150+ articles where inline
 # starts exhausting max_turns).
 INLINE_BYTES_THRESHOLD = 500_000
+
+
+def _snapshot_articles() -> dict[str, float]:
+    """Map relative-to-knowledge paths to mtimes for every article the sub-agent
+    might create or edit. Used to compute the post-compile log entry without
+    asking the sub-agent to write to log.md (which would echo the full file via
+    tool_use_result on every edit, blowing the SDK's 1 MiB per-message buffer
+    once log.md grows past ~960 KB)."""
+    snapshot: dict[str, float] = {}
+    for sub in (CONCEPTS_DIR, CONNECTIONS_DIR, QA_DIR):
+        if not sub.exists():
+            continue
+        for p in sub.rglob("*.md"):
+            snapshot[str(p.relative_to(KNOWLEDGE_DIR))] = p.stat().st_mtime
+    return snapshot
+
+
+def _diff_articles(before: dict[str, float], after: dict[str, float]) -> tuple[list[str], list[str]]:
+    """Return (created, updated) lists of slugs (path without the .md suffix) in
+    deterministic order."""
+    created = sorted(p[:-3] for p in set(after) - set(before))
+    updated = sorted(p[:-3] for p in (set(after) & set(before)) if after[p] > before[p])
+    return created, updated
+
+
+def _append_log_entry(
+    timestamp: str,
+    source_rel: Path,
+    created: list[str],
+    updated: list[str],
+    cost: float,
+) -> None:
+    """Append one structured entry to knowledge/log.md. The runner owns this
+    file; the compile sub-agent must not touch it."""
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if not LOG_FILE.exists():
+        LOG_FILE.write_text("# Build Log\n", encoding="utf-8")
+
+    lines = [f"\n## [{timestamp}] compile | {source_rel}"]
+    if created:
+        lines.append("- Created: " + ", ".join(f"[[{slug}]]" for slug in created))
+    if updated:
+        lines.append("- Updated: " + ", ".join(f"[[{slug}]]" for slug in updated))
+    if not created and not updated:
+        lines.append("- (no article changes)")
+    lines.append(f"- Cost: ${cost:.4f}")
+
+    with LOG_FILE.open("a", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
 
 
 def build_articles_context(mode: str) -> tuple[str, str, int]:
@@ -97,6 +146,7 @@ async def compile_source(source_path: Path, state: dict, mode: str) -> float:
     schema = AGENTS_FILE.read_text(encoding="utf-8")
     wiki_index = read_wiki_index()
     existing_articles_context, resolved_mode, _ = build_articles_context(mode)
+    snapshot_before = _snapshot_articles()
     task_preamble = ""
     if resolved_mode == "lookup":
         task_preamble = (
@@ -149,19 +199,12 @@ and extract knowledge into structured wiki articles.
    - Read the existing article, add the new information, add the source to frontmatter
 5. **Update knowledge/index.md** - Add new entries to the table
    - Each entry: `| [[path/slug]] | One-line summary | source-file | {timestamp[:10]} |`
-6. **Append to knowledge/log.md** - Add a timestamped entry:
-   ```
-   ## [{timestamp}] compile | {source_rel}
-   - Source: {source_rel}
-   - Articles created: [[concepts/x]], [[concepts/y]]
-   - Articles updated: [[concepts/z]] (if any)
-   ```
 
 ### File paths:
 - Write concept articles to: {CONCEPTS_DIR}
 - Write connection articles to: {CONNECTIONS_DIR}
 - Update index at: {KNOWLEDGE_DIR / 'index.md'}
-- Append log at: {KNOWLEDGE_DIR / 'log.md'}
+- **Do NOT modify {KNOWLEDGE_DIR / 'log.md'}** — the runner appends a structured entry after success.
 
 ### Quality standards:
 - Every article must have complete YAML frontmatter
@@ -227,6 +270,9 @@ and extract knowledge into structured wiki articles.
     }
     state["total_cost"] = state.get("total_cost", 0.0) + cost
     save_state(state)
+
+    created, updated = _diff_articles(snapshot_before, _snapshot_articles())
+    _append_log_entry(now_iso(), source_rel, created, updated, cost)
 
     return cost
 

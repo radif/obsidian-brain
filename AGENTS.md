@@ -149,21 +149,27 @@ Format:
 
 ### `knowledge/log.md` - Build Log
 
-Append-only chronological record of every compile, query, and lint operation.
+Append-only chronological record of every compile and filed query. Written by
+the runner (`scripts/compile.py`, `scripts/query.py`) after the sub-agent
+returns successfully, NEVER by the sub-agent itself. Sub-agents must not Read,
+Write, or Edit this file. Keeping the runner as the sole writer bounds the
+per-entry size and prevents log.md from outgrowing the Claude Agent SDK's
+1 MiB per-message buffer (each sub-agent Edit echoes the post-edit file via
+`tool_use_result`, so once log.md crosses ~960 KB every compile fails).
 
-Format:
+Format (one entry per successful run):
 
 ```markdown
 # Build Log
 
-## [2026-04-01T14:30:00] compile | Daily Log 2026-04-01
-- Source: raw/daily/2026-04-01.md
-- Articles created: [[concepts/nextjs-project-structure]], [[concepts/tailwind-setup]]
-- Articles updated: (none)
+## [2026-04-01T14:30:00-07:00] compile | raw/daily/2026-04-01.md
+- Created: [[concepts/nextjs-project-structure]], [[concepts/tailwind-setup]]
+- Updated: [[concepts/typescript-config]]
+- Cost: $0.1234
 
-## [2026-04-02T09:00:00] query | "How do I handle auth redirects?"
-- Consulted: [[concepts/supabase-auth]], [[concepts/nextjs-middleware]]
-- Filed to: [[qa/auth-redirect-handling]]
+## [2026-04-02T09:00:00-07:00] query (filed) | How do I handle auth redirects?
+- Filed: [[qa/auth-redirect-handling]]
+- Cost: $0.0456
 ```
 
 ---
@@ -291,7 +297,7 @@ When processing a raw source (conversation log, clipping, meeting notes, etc.):
    - If it's a new topic: CREATE a new `concepts/` article
 5. If the log reveals a non-obvious connection between 2+ existing concepts: CREATE a `connections/` article
 6. UPDATE `knowledge/index.md` with new/modified entries
-7. APPEND to `knowledge/log.md`
+7. Do NOT modify `knowledge/log.md`: the runner writes the entry after the sub-agent returns.
 
 **Important guidelines:**
 - A single daily log may touch 3-10 knowledge articles
@@ -307,7 +313,7 @@ When processing a raw source (conversation log, clipping, meeting notes, etc.):
 2. Based on the question, identify 3-10 relevant articles from the index
 3. Read those articles in full
 4. Synthesize an answer with `[[wikilink]]` citations
-5. If `--file-back` is specified: create a `knowledge/qa/` article and update index.md and log.md
+5. If `--file-back` is specified: create a `knowledge/qa/` article and update `knowledge/index.md`. The runner appends to `knowledge/log.md` after the sub-agent returns.
 
 **Why this works without RAG:** At personal knowledge base scale (50-500 articles), the LLM reading a structured index outperforms cosine similarity. The LLM understands what the question is really asking and selects pages accordingly. Embeddings find similar words; the LLM finds relevant concepts.
 

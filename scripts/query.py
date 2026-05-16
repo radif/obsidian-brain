@@ -22,8 +22,31 @@ import argparse
 import asyncio
 from pathlib import Path
 
-from config import KNOWLEDGE_DIR, QA_DIR, now_iso
+from config import KNOWLEDGE_DIR, LOG_FILE, QA_DIR, now_iso
 from utils import COST_DISCLAIMER, format_token_usage, load_state, read_all_wiki_content, save_state
+
+
+def _snapshot_qa() -> dict[str, float]:
+    if not QA_DIR.exists():
+        return {}
+    return {str(p.relative_to(KNOWLEDGE_DIR)): p.stat().st_mtime for p in QA_DIR.rglob("*.md")}
+
+
+def _append_query_log(timestamp: str, question: str, created: list[str], updated: list[str], cost: float) -> None:
+    """Append a structured one-entry record to knowledge/log.md for a file-back
+    query. Runner-owned to keep log.md bounded (see compile.py for context)."""
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if not LOG_FILE.exists():
+        LOG_FILE.write_text("# Build Log\n", encoding="utf-8")
+    summary = question if len(question) <= 100 else question[:97] + "..."
+    lines = [f"\n## [{timestamp}] query (filed) | {summary}"]
+    if created:
+        lines.append("- Filed: " + ", ".join(f"[[{slug}]]" for slug in created))
+    if updated:
+        lines.append("- Updated: " + ", ".join(f"[[{slug}]]" for slug in updated))
+    lines.append(f"- Cost: ${cost:.4f}")
+    with LOG_FILE.open("a", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
@@ -46,7 +69,6 @@ async def run_query(question: str, file_back: bool = False) -> str:
 
     file_back_instructions = ""
     if file_back:
-        timestamp = now_iso()
         file_back_instructions = f"""
 
 ## File Back Instructions
@@ -57,11 +79,7 @@ After answering, do the following:
 2. Use the Q&A article format from the schema (frontmatter with title, question,
    consulted articles, filed date)
 3. Update {KNOWLEDGE_DIR / 'index.md'} with a new row for this Q&A article
-4. Append to {KNOWLEDGE_DIR / 'log.md'}:
-   ## [{timestamp}] query (filed) | question summary
-   - Question: {question}
-   - Consulted: [[list of articles read]]
-   - Filed to: [[qa/article-name]]
+4. **Do NOT modify {KNOWLEDGE_DIR / 'log.md'}** — the runner appends a structured entry after success.
 """
 
     prompt = f"""You are a knowledge base query engine. Answer the user's question by
@@ -87,6 +105,7 @@ consulting the knowledge base below.
 
     answer = ""
     cost = 0.0
+    snapshot_before = _snapshot_qa() if file_back else {}
 
     try:
         async for message in query(
@@ -115,6 +134,12 @@ consulting the knowledge base below.
     state["query_count"] = state.get("query_count", 0) + 1
     state["total_cost"] = state.get("total_cost", 0.0) + cost
     save_state(state)
+
+    if file_back:
+        after = _snapshot_qa()
+        created = sorted(p[:-3] for p in set(after) - set(snapshot_before))
+        updated = sorted(p[:-3] for p in (set(after) & set(snapshot_before)) if after[p] > snapshot_before[p])
+        _append_query_log(now_iso(), question, created, updated, cost)
 
     return answer
 
