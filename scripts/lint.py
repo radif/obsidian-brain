@@ -148,6 +148,132 @@ def check_sparse_articles() -> list[dict]:
     return issues
 
 
+def check_stale_transaction_counts() -> list[dict]:
+    """Flag hardcoded "N closed transactions" mentions that don't match the
+    actual count of files in raw/operations/transactions/.
+
+    Source of truth: per-transaction frontmatter files under
+    raw/operations/transactions/*.md. Anything else that hardcodes a number
+    (brochure copy, brand source, marketing snippets) drifts when new
+    transactions are added — this check catches the drift.
+    """
+    import re
+
+    issues = []
+    txn_dir = ROOT_DIR / "raw" / "operations" / "transactions"
+    if not txn_dir.exists():
+        return issues  # nothing to compare against
+    canonical_count = sum(1 for _ in txn_dir.glob("*.md"))
+
+    # Patterns that capture a 2- or 3-digit number meant as a transaction
+    # COUNT, not a price/year/per-period figure. Each captures the number
+    # plus enough surrounding context for the proximity-guard below.
+    # MIN_COUNT filters out per-year and per-cohort breakdowns (no real-estate
+    # practice has a meaningful career-total under 50).
+    MIN_COUNT = 50
+    patterns = [
+        # "99 closed transactions" / "99 closed sales" / "99 closed deals"
+        re.compile(r"\b(\d{2,3})\s+closed\s+(?:transactions?|sales?|deals?|closings?)\b", re.IGNORECASE),
+        # "99 transactions closed" / "99 transactions completed"
+        re.compile(r"\b(\d{2,3})\s+transactions?\s+(?:closed|completed|done)\b", re.IGNORECASE),
+        # Stat-list: "99 transactions · $105M" or "99 transactions,"
+        re.compile(r"\b(\d{2,3})\s+transactions?\s*(?=[·,|\)]|\s+·)"),
+        # Stat-list ending with $ amount: "99 transactions $105M"
+        re.compile(r"\b(\d{2,3})\s+transactions?\s+\$"),
+    ]
+
+    # A match only counts as a "stale Lily-count" claim if it appears within
+    # ~200 chars of a Lily-specific marker. This excludes competitor counts
+    # (Kate Fomina's 234 deals, etc.) and breakdown tables.
+    LILY_MARKERS = re.compile(
+        r"\b(Lily|Garipova|lilygaripova\.com|105M|105,251,499|"
+        r"\$105 million|Centermac|career|cumulative|practice|documented)\b",
+        re.IGNORECASE,
+    )
+    # Negative guard: if any of these markers appear in the same window, the
+    # match is documenting a third-party count (Homes.com inconsistency,
+    # Zillow's reported count, ZoomInfo's older figure) — NOT Lily's own
+    # marketing claim. Skip these.
+    THIRD_PARTY_MARKERS = re.compile(
+        r"\b(Homes\.com|ZoomInfo|Realtor\.com|directory drift|directory-drift|"
+        r"third-party|offsite drift|off-site drift|internal inconsistency|"
+        r"summary card|conflicting|stale figure)\b",
+        re.IGNORECASE,
+    )
+    LILY_WINDOW = 200          # chars for the must-be-near-Lily guard
+    THIRD_PARTY_WINDOW = 500   # chars for the must-not-be-near-third-party guard
+
+    scan_roots = [
+        ROOT_DIR / "raw",
+        ROOT_DIR / "knowledge",
+        ROOT_DIR / "projects",
+        ROOT_DIR / "notes",
+    ]
+    excluded_substrings = (
+        "/raw/operations/transactions/",         # source-of-truth files themselves
+        "/knowledge/data/transactions.md",        # auto-generated
+        "/knowledge/data/transactions-aggregates.md",  # auto-generated
+        "/raw/competitors/",                      # competitor data (Kate's 234 etc.)
+        "/raw/brand/online-research-saves/",      # literal third-party page captures
+        "/notes/backups/",                        # historical snapshots
+        "/notes/sessions/",                       # session logs — frozen in time
+        "/reports/",                              # lint reports themselves
+    )
+
+    for root in scan_roots:
+        if not root.exists():
+            continue
+        for md_file in root.rglob("*.md"):
+            path_str = str(md_file).replace("\\", "/")
+            if any(excl in path_str for excl in excluded_substrings):
+                continue
+            try:
+                content = md_file.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+
+            stale_numbers: set[int] = set()
+            for pat in patterns:
+                for m in pat.finditer(content):
+                    try:
+                        n = int(m.group(1))
+                    except (ValueError, IndexError):
+                        continue
+                    if n == canonical_count or n < MIN_COUNT:
+                        continue
+                    # Proximity guards — require Lily-context (narrow window)
+                    # AND not a third-party-citation context (wider window —
+                    # third-party stat blocks tend to be long).
+                    lily_start = max(0, m.start() - LILY_WINDOW)
+                    lily_end = min(len(content), m.end() + LILY_WINDOW)
+                    if not LILY_MARKERS.search(content[lily_start:lily_end]):
+                        continue
+                    tp_start = max(0, m.start() - THIRD_PARTY_WINDOW)
+                    tp_end = min(len(content), m.end() + THIRD_PARTY_WINDOW)
+                    if THIRD_PARTY_MARKERS.search(content[tp_start:tp_end]):
+                        continue
+                    stale_numbers.add(n)
+
+            if stale_numbers:
+                try:
+                    rel = md_file.relative_to(ROOT_DIR)
+                except ValueError:
+                    rel = md_file
+                stale_list = ", ".join(str(n) for n in sorted(stale_numbers))
+                issues.append({
+                    "severity": "warning",
+                    "check": "stale_transaction_count",
+                    "file": str(rel),
+                    "detail": (
+                        f"Hardcoded Lily transaction count(s) {stale_list} disagree with canonical "
+                        f"count {canonical_count} from raw/operations/transactions/. "
+                        f"Add missing transaction files, run `just transactions`, then update or remove the hardcoded number."
+                    ),
+                })
+
+    return issues
+
+
 async def check_contradictions() -> list[dict]:
     """Use LLM to detect contradictions across articles."""
     from claude_agent_sdk import (
@@ -275,6 +401,7 @@ def main():
         ("Stale articles", check_stale_articles),
         ("Missing backlinks", check_missing_backlinks),
         ("Sparse articles", check_sparse_articles),
+        ("Stale transaction counts", check_stale_transaction_counts),
     ]
 
     for name, check_fn in checks:
