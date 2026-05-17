@@ -4,8 +4,12 @@ version = "0.1.0"
 description = "Personal knowledge base compiled from AI conversations - inspired by Karpathy's LLM KB architecture"
 requires-python = ">=3.12"
 dependencies = [
+    "beautifulsoup4>=4.12",
     "claude-agent-sdk>=0.1.29",
+    "playwright>=1.44",
+    "pytest>=8.0",
     "python-dotenv>=1.0.0",
+    "pyyaml>=6.0",
     "tzdata>=2024.1",
     "youtube-transcript-api>=1.2.3",
 ]
