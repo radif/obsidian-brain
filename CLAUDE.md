@@ -79,7 +79,7 @@ Paths under `raw/`, `knowledge/`, and `notes/` are gitignored here and resolve e
 | `knowledge/concepts/` | `compile.py` sub-agent | LLM-owned. Do not hand-write articles here during interactive sessions. |
 | `knowledge/connections/` | `compile.py` sub-agent | Same — LLM-owned. |
 | `knowledge/qa/` | `query.py --file-back` sub-agent | Same — LLM-owned. |
-| `knowledge/index.md` | Compile/query sub-agents | Master catalog. Injected into every session. Sub-agents update it. |
+| `knowledge/index.md` | `compile.py` / `query.py` runner | Master catalog. Injected into every session. Regenerated from each article's `summary:` frontmatter after a successful sub-agent run. Sub-agents must NOT Read, Write, or Edit this file (same 1 MiB SDK-buffer pathology as log.md: once index.md grows past ~960 KB, every Edit echoes the full post-edit file via `tool_use_result` and crashes the message reader). |
 | `knowledge/log.md` | `compile.py` / `query.py` runner | Append-only build log. The runner writes the entry after the sub-agent returns; sub-agents must NOT Read, Write, or Edit this file. Edits by a sub-agent would echo the full post-edit file via `tool_use_result` and blow the SDK's 1 MiB per-message buffer once log.md crosses ~960 KB. |
 | `scripts/*.py` | Human | Source. Edit freely. |
 | `state.json` (content-repo root in linked mode, structural-repo root in solo mode) | Scripts | Compile cache. Keys are paths relative to the structural repo root (e.g. `raw/daily/2026-04-10.md`). Tracked in the content repo so compile state syncs across machines. Never hand-edit. |

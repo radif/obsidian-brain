@@ -7,6 +7,8 @@ import json
 import re
 from pathlib import Path
 
+import yaml
+
 from config import (
     CONCEPTS_DIR,
     CONNECTIONS_DIR,
@@ -139,6 +141,64 @@ def list_wiki_articles() -> list[Path]:
         if subdir.exists():
             articles.extend(sorted(subdir.glob("*.md")))
     return articles
+
+
+def _parse_frontmatter(text: str) -> dict | None:
+    """Extract the YAML frontmatter block from a markdown file. Returns None
+    when there's no frontmatter or it's malformed."""
+    if not text.startswith("---\n"):
+        return None
+    end = text.find("\n---\n", 4)
+    if end == -1:
+        return None
+    try:
+        fm = yaml.safe_load(text[4:end])
+    except yaml.YAMLError:
+        return None
+    return fm if isinstance(fm, dict) else None
+
+
+def rebuild_index() -> None:
+    """Regenerate knowledge/index.md from every article's frontmatter.
+
+    The runner calls this after a successful compile or file-back query.
+    Sub-agents must NOT touch index.md. Keeping the runner as the sole
+    writer means row count and per-row width are both bounded by
+    frontmatter (summary capped at 200 chars per AGENTS.md), so the
+    rebuilt index stays well under the Claude Agent SDK's 1 MiB
+    per-message buffer.
+
+    Article order matches list_wiki_articles(): concepts/, connections/,
+    qa/, alphabetical within each. Articles with no parseable frontmatter
+    are skipped silently (lint catches them separately).
+    """
+    rows: list[str] = []
+    for article in list_wiki_articles():
+        rel = article.relative_to(KNOWLEDGE_DIR).with_suffix("")
+        fm = _parse_frontmatter(article.read_text(encoding="utf-8"))
+        if fm is None:
+            continue
+        summary = (
+            str(fm.get("summary") or "").replace("|", "\\|").replace("\n", " ").strip()
+        )
+        sources = fm.get("sources") or []
+        if isinstance(sources, list):
+            sources_cell = ", ".join(str(s) for s in sources)
+        else:
+            sources_cell = str(sources)
+        sources_cell = sources_cell.replace("|", "\\|").replace("\n", " ").strip()
+        updated = str(fm.get("updated") or "").strip()
+        rows.append(f"| [[{rel}]] | {summary} | {sources_cell} | {updated} |")
+
+    body = (
+        "# Knowledge Base Index\n\n"
+        "| Article | Summary | Compiled From | Updated |\n"
+        "|---------|---------|---------------|---------|\n"
+        + "\n".join(rows)
+        + "\n"
+    )
+    INDEX_FILE.parent.mkdir(parents=True, exist_ok=True)
+    INDEX_FILE.write_text(body, encoding="utf-8")
 
 
 def list_raw_files() -> list[Path]:

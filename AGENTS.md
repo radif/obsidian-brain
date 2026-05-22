@@ -136,6 +136,15 @@ The schema that tells the LLM how to compile and maintain the knowledge base. Th
 
 A table listing every knowledge article. This is the primary retrieval mechanism - the LLM reads this FIRST when answering any query, then selects relevant articles to read in full.
 
+Written by the runner (`scripts/compile.py`, `scripts/query.py`) from each
+article's `summary:` frontmatter after the sub-agent returns successfully,
+NEVER by the sub-agent itself. Sub-agents must not Read, Write, or Edit this
+file. Keeping the runner as the sole writer bounds the row count by the
+number of articles and bounds each Summary cell at 200 chars, which prevents
+index.md from outgrowing the Claude Agent SDK's 1 MiB per-message buffer
+(each sub-agent Edit echoes the post-edit file via `tool_use_result`, so
+once index.md crosses ~960 KB every compile fails).
+
 Format:
 
 ```markdown
@@ -185,6 +194,7 @@ One article per atomic piece of knowledge. These are facts, patterns, decisions,
 title: "Concept Name"
 aliases: [alternate-name, abbreviation]
 tags: [domain, topic]
+summary: "One-line summary, ≤200 chars, neutral encyclopedic register. Used verbatim as this article's row in knowledge/index.md."
 sources:
   - "raw/daily/2026-04-01.md"
   - "raw/daily/2026-04-03.md"
@@ -224,6 +234,7 @@ title: "Connection: X and Y"
 connects:
   - "concepts/concept-x"
   - "concepts/concept-y"
+summary: "One-line summary, ≤200 chars. Used verbatim as this article's row in knowledge/index.md."
 sources:
   - "raw/daily/2026-04-04.md"
 created: 2026-04-04
@@ -258,6 +269,7 @@ Filed answers from queries. Every complex question answered by the system can be
 ---
 title: "Q: Original Question"
 question: "The exact question asked"
+summary: "One-line summary of the answer, ≤200 chars. Used verbatim as this article's row in knowledge/index.md."
 consulted:
   - "concepts/article-1"
   - "concepts/article-2"
@@ -296,15 +308,14 @@ When processing a raw source (conversation log, clipping, meeting notes, etc.):
    - If an existing concept article covers this topic: UPDATE it with new information, add the daily log as a source
    - If it's a new topic: CREATE a new `concepts/` article
 5. If the log reveals a non-obvious connection between 2+ existing concepts: CREATE a `connections/` article
-6. UPDATE `knowledge/index.md` with new/modified entries
-7. Do NOT modify `knowledge/log.md`: the runner writes the entry after the sub-agent returns.
+6. Write a `summary:` field in each new or updated article's frontmatter (≤200 chars). The runner regenerates `knowledge/index.md` from these summaries after you return; do NOT modify `knowledge/index.md` or `knowledge/log.md` directly.
 
 **Important guidelines:**
 - A single daily log may touch 3-10 knowledge articles
 - Prefer updating existing articles over creating near-duplicates
 - Use Obsidian-style `[[wikilinks]]` with full relative paths from knowledge/
 - Write in encyclopedia style - factual, concise, self-contained
-- Every article must have YAML frontmatter
+- Every article must have YAML frontmatter, including a `summary:` line (≤200 chars)
 - Every article must link back to its source daily logs
 
 ### 2. Query (Ask the Knowledge Base)
@@ -313,7 +324,7 @@ When processing a raw source (conversation log, clipping, meeting notes, etc.):
 2. Based on the question, identify 3-10 relevant articles from the index
 3. Read those articles in full
 4. Synthesize an answer with `[[wikilink]]` citations
-5. If `--file-back` is specified: create a `knowledge/qa/` article and update `knowledge/index.md`. The runner appends to `knowledge/log.md` after the sub-agent returns.
+5. If `--file-back` is specified: create a `knowledge/qa/` article with a `summary:` frontmatter line (≤200 chars). The runner regenerates `knowledge/index.md` from the summary and appends to `knowledge/log.md` after the sub-agent returns. Do NOT modify `knowledge/index.md` or `knowledge/log.md` directly.
 
 **Why this works without RAG:** At personal knowledge base scale (50-500 articles), the LLM reading a structured index outperforms cosine similarity. The LLM understands what the question is really asking and selects pages accordingly. Embeddings find similar words; the LLM finds relevant concepts.
 
@@ -339,7 +350,7 @@ Output: a markdown report with severity levels (error, warning, suggestion).
 - **Writing style:** Encyclopedia-style, factual, third-person where appropriate
 - **Dates:** ISO 8601 (YYYY-MM-DD for dates, full ISO for timestamps in log.md)
 - **File naming:** lowercase, hyphens for spaces (e.g., `supabase-row-level-security.md`)
-- **Frontmatter:** Every article must have YAML frontmatter with at minimum: title, sources, created, updated
+- **Frontmatter:** Every article must have YAML frontmatter with at minimum: title, summary (≤200 chars), sources, created, updated
 - **Sources:** Always link back to the daily log(s) that contributed to an article
 
 ---

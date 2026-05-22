@@ -23,7 +23,7 @@ import asyncio
 from pathlib import Path
 
 from config import KNOWLEDGE_DIR, LOG_FILE, QA_DIR, now_iso
-from utils import COST_DISCLAIMER, format_token_usage, load_state, read_all_wiki_content, save_state
+from utils import COST_DISCLAIMER, format_token_usage, load_state, read_all_wiki_content, rebuild_index, save_state
 
 
 def _snapshot_qa() -> dict[str, float]:
@@ -77,9 +77,9 @@ After answering, do the following:
 1. Create a Q&A article at {QA_DIR}/ with the filename being a slugified version
    of the question (e.g., knowledge/qa/how-to-handle-auth-redirects.md)
 2. Use the Q&A article format from the schema (frontmatter with title, question,
-   consulted articles, filed date)
-3. Update {KNOWLEDGE_DIR / 'index.md'} with a new row for this Q&A article
-4. **Do NOT modify {KNOWLEDGE_DIR / 'log.md'}** — the runner appends a structured entry after success.
+   consulted articles, filed date, and a `summary:` line ≤200 chars in neutral
+   encyclopedic register; the runner uses this verbatim as the index row's Summary)
+3. **Do NOT modify {KNOWLEDGE_DIR / 'index.md'} or {KNOWLEDGE_DIR / 'log.md'}**. The runner regenerates the index from per-article frontmatter and appends a structured log entry after success.
 """
 
     prompt = f"""You are a knowledge base query engine. Answer the user's question by
@@ -139,6 +139,7 @@ consulting the knowledge base below.
         after = _snapshot_qa()
         created = sorted(p[:-3] for p in set(after) - set(snapshot_before))
         updated = sorted(p[:-3] for p in (set(after) & set(snapshot_before)) if after[p] > snapshot_before[p])
+        rebuild_index()
         _append_query_log(now_iso(), question, created, updated, cost)
 
     return answer

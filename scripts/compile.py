@@ -34,6 +34,7 @@ from utils import (
     list_wiki_articles,
     load_state,
     read_wiki_index,
+    rebuild_index,
     save_state,
 )
 
@@ -197,17 +198,17 @@ and extract knowledge into structured wiki articles.
    relationships between 2+ existing concepts
 4. **Update existing articles** if this source adds new information to concepts already in the wiki
    - Read the existing article, add the new information, add the source to frontmatter
-5. **Update knowledge/index.md** - Add new entries to the table
-   - Each entry: `| [[path/slug]] | One-line summary | source-file | {timestamp[:10]} |`
+5. **Write a `summary:` line into each article's frontmatter**: one line, ≤200 chars,
+   neutral encyclopedic register. The runner regenerates `knowledge/index.md` from
+   this field after you finish; the index row's Summary cell is this value verbatim.
 
 ### File paths:
 - Write concept articles to: {CONCEPTS_DIR}
 - Write connection articles to: {CONNECTIONS_DIR}
-- Update index at: {KNOWLEDGE_DIR / 'index.md'}
-- **Do NOT modify {KNOWLEDGE_DIR / 'log.md'}** — the runner appends a structured entry after success.
+- **Do NOT modify {KNOWLEDGE_DIR / 'index.md'} or {KNOWLEDGE_DIR / 'log.md'}**. The runner regenerates the index from per-article frontmatter and appends a structured log entry after success.
 
 ### Quality standards:
-- Every article must have complete YAML frontmatter
+- Every article must have complete YAML frontmatter, including a `summary:` field (≤200 chars)
 - Every article must link to at least 2 other articles via [[wikilinks]]
 - Key Points section should have 3-5 bullet points
 - Details section should have 2+ paragraphs
@@ -272,6 +273,7 @@ and extract knowledge into structured wiki articles.
     save_state(state)
 
     created, updated = _diff_articles(snapshot_before, _snapshot_articles())
+    rebuild_index()
     _append_log_entry(now_iso(), source_rel, created, updated, cost)
 
     return cost
