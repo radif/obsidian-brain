@@ -87,13 +87,6 @@ transcribe-channel channel_url:
 rtf-to-md path:
     uv run python scripts/rtf-to-md.py "{{path}}"
 
-# Weekly SERP monitoring for the Google AI Overview defense project.
-# Captures all 18 target queries, parses Lily's position, writes one row per
-# query to notes/serp-monitoring/positions.csv. Emits an ALERTS file if any
-# Tier A query has demoted Lily.
-monitor-serp *FLAGS:
-    uv run python scripts/monitor_serp.py {{FLAGS}}
-
 # Commit + push content-repo changes (linked mode only)
 push-content msg:
     #!/usr/bin/env bash
