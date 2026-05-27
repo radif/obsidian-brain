@@ -71,15 +71,30 @@ Every compiled article is listed here with a one-line summary and the sources it
 
 List files in `$BRAIN/raw/daily/`, find the most recent one (today if exists, else yesterday), and read it. ~2–5KB. Captures what's on the user's mind right now — often the context behind the prompt you're about to receive.
 
-### 5. Report what you loaded
+### 5. Cross-machine memory mirror — accumulated session memory
+
+Read `$BRAIN/notes/claude-memory/MEMORY.md` if it exists. This is a portable mirror of the Claude Code per-project auto-memory (the kind that normally lives only at `~/.claude/projects/.../memory/` on each machine). The mirror exists because the local store doesn't travel across machines, but cross-session context should.
+
+`MEMORY.md` is the index, one line per remembered entry. Scan it. When an entry sounds relevant to the user's likely prompts, also read the corresponding `$BRAIN/notes/claude-memory/<slug>.md` file in full. Memory types follow the convention:
+
+- `feedback_*` — guidance about how to approach work (these are behavior rules, follow them)
+- `reference_*` — pointers to canonical artifacts (URLs, IDs, file paths)
+- `project_*` — ongoing project state worth carrying forward
+- `user_*` — facts about the user or team
+
+If `notes/claude-memory/` doesn't exist, the brain hasn't been set up with the mirror yet. Note that and move on.
+
+### 6. Report what you loaded
 
 Give the user a one-sentence summary:
 
-> "Brain connected from `<resolved path>`: operating-system doctrine loaded + N indexed articles + the `<YYYY-MM-DD>` daily log. Ready to attack problems the way you would — what are you thinking about?"
+> "Brain connected from `<resolved path>`: operating-system doctrine loaded + N indexed articles + the `<YYYY-MM-DD>` daily log + M cross-machine memory entries. Ready to attack problems the way you would — what are you thinking about?"
 
 If no doctrine file was found, say so explicitly:
 
-> "Brain connected from `<resolved path>`: no personal doctrine file found under `raw/research/` (tip: drop a `how-<you>-work-with-ai.md` there to shape future sessions). Loaded structural rules + N indexed articles + the `<YYYY-MM-DD>` daily log. What are you thinking about?"
+> "Brain connected from `<resolved path>`: no personal doctrine file found under `raw/research/` (tip: drop a `how-<you>-work-with-ai.md` there to shape future sessions). Loaded structural rules + N indexed articles + the `<YYYY-MM-DD>` daily log + M memory entries. What are you thinking about?"
+
+If `notes/claude-memory/` was missing, drop the memory clause from the summary.
 
 Then wait. Don't proactively dump summaries — let the user drive.
 
