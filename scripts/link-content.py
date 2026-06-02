@@ -61,6 +61,7 @@ SKELETON_SUBDIRS = [
 PROJECT_OVERLAY = [
     ("project/scripts/*.py", "scripts", "files"),
     ("project/commands/*.md", ".claude/commands", "files"),
+    ("project/agents/*.md",   ".claude/agents",   "files"),
     ("project/skills/*",      ".claude/skills",   "dirs"),
     ("project/justfile",      "project.justfile", "single"),
 ]

@@ -28,12 +28,13 @@ Some content repos carry their own project-specific tooling — Python scripts t
 <content-repo>/project/
 ├── scripts/<name>.py        → symlinked into <structural>/scripts/<name>.py
 ├── commands/<name>.md       → symlinked into <structural>/.claude/commands/<name>.md
+├── agents/<name>.md         → symlinked into <structural>/.claude/agents/<name>.md
 ├── skills/<name>/           → symlinked into <structural>/.claude/skills/<name>/
 ├── justfile                 → symlinked into <structural>/project.justfile
 └── raw-skip.txt             → read directly by scripts/utils.py
 ```
 
-**Adding new project-specific tooling (linked mode):** place new scripts at `<content-repo>/project/scripts/<name>.py`, slash commands at `<content-repo>/project/commands/<name>.md`, skills at `<content-repo>/project/skills/<name>/`, and justfile recipes in `<content-repo>/project/justfile` — *never* directly in this repo's `scripts/`, `.claude/commands/`, `.claude/skills/`, or root `justfile`. After saving, run `uv run python scripts/link-content.py <content-repo-path>` to refresh the symlinks so Claude Code's discovery rules pick the new file up. **Decision rule:** if cloning *this structural repo alone* wouldn't give a future maintainer the data the tool operates on, it's project-specific. In solo mode there's no overlay — put new tooling directly under `scripts/`, `.claude/commands/`, etc.
+**Adding new project-specific tooling (linked mode):** place new scripts at `<content-repo>/project/scripts/<name>.py`, slash commands at `<content-repo>/project/commands/<name>.md`, subagents at `<content-repo>/project/agents/<name>.md`, skills at `<content-repo>/project/skills/<name>/`, and justfile recipes in `<content-repo>/project/justfile` — *never* directly in this repo's `scripts/`, `.claude/commands/`, `.claude/agents/`, `.claude/skills/`, or root `justfile`. After saving, run `uv run python scripts/link-content.py <content-repo-path>` to refresh the symlinks so Claude Code's discovery rules pick the new file up. **Decision rule:** if cloning *this structural repo alone* wouldn't give a future maintainer the data the tool operates on, it's project-specific. In solo mode there's no overlay — put new tooling directly under `scripts/`, `.claude/commands/`, etc.
 
 `scripts/link-content.py` mirrors each *symlinked* item above so Claude Code's discovery rules (which only look in the structural working dir) can find them, and records every linked path in `.git/info/exclude` (per-clone, not committed) so the structural repo's tracked `.gitignore` stays generic. The structural `justfile` does `import? 'project.justfile'` — silently skipped when no overlay is linked.
 
