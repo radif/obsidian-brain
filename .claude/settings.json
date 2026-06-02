@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "uv run python hooks/session-start.py",
-            "timeout": 15
+            "timeout": 25
           }
         ]
       }

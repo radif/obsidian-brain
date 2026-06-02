@@ -37,11 +37,14 @@ if os.environ.get("CLAUDE_INVOKED_BY"):
 ROOT = Path(__file__).resolve().parent.parent
 KNOWLEDGE_DIR = ROOT / "knowledge"
 DAILY_DIR = ROOT / "raw" / "daily"
+SESSIONS_DIR = ROOT / "notes" / "sessions"
 INDEX_FILE = KNOWLEDGE_DIR / "index.md"
 COLLECT_ASSETS_SCRIPT = ROOT / "scripts" / "collect-assets.py"
+SYNC_SCRIPT = ROOT / "scripts" / "sync.py"
 
 MAX_CONTEXT_CHARS = 20_000
 MAX_LOG_LINES = 30
+RECENT_SESSION_LOGS = 3
 
 
 def get_recent_log() -> str:
@@ -58,6 +61,41 @@ def get_recent_log() -> str:
             return "\n".join(recent)
 
     return "(no recent daily log)"
+
+
+def recent_session_logs_note() -> str:
+    """Point at the most recent cross-device session logs (notes/sessions/).
+
+    These operational continuity logs are too large to inline (tens of KB each),
+    so we list the most recent filenames and let Claude Read them on demand when
+    the user's first message continues prior work. Returns "" if none exist.
+    """
+    if not SESSIONS_DIR.exists():
+        return ""
+    try:
+        logs = sorted(
+            (p for p in SESSIONS_DIR.glob("*.md") if p.is_file()),
+            key=lambda p: p.name,
+            reverse=True,
+        )[:RECENT_SESSION_LOGS]
+    except OSError:
+        return ""
+    if not logs:
+        return ""
+
+    listed = "\n".join(f"- `notes/sessions/{p.name}`" for p in logs)
+    return (
+        "## Recent session logs (cross-device continuity)\n\n"
+        "Operational logs written automatically at the end of past sessions and "
+        "synced via the content repo. Most recent first:\n\n"
+        f"{listed}\n\n"
+        "If the user's first message **continues prior work** (\"keep going\", "
+        "\"where did we leave off\", references recent work, or assumes shared "
+        "context), `Read` the most recent log(s) in full before responding and "
+        "surface any unfinished **Next-up bookmarks** / **State of long-running "
+        "efforts** — they often won't remember them. Skip this for a purely fresh "
+        "or structural/tooling task."
+    )
 
 
 def pending_compile_note() -> str:
@@ -105,9 +143,50 @@ def pending_compile_note() -> str:
     )
 
 
+def pull_repos() -> str:
+    """Pull both repos (structural + content) so the session starts current.
+
+    Runs `scripts/sync.py pull`, which fetches + merges and — on conflict —
+    leaves the repo mid-merge and returns an action-required block instructing
+    Claude to resolve it now. Best-effort: a timeout or any failure returns a
+    short note instead of crashing the hook. Returns "" only if the sync script
+    is absent (e.g. an old checkout).
+    """
+    if not SYNC_SCRIPT.exists():
+        return ""
+    try:
+        proc = subprocess.run(
+            ["uv", "run", "python", str(SYNC_SCRIPT), "pull"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        out = (proc.stdout or "").strip()
+        if out:
+            return out
+        return "## 🔄 Repo sync (launch pull)\n\n_Sync produced no output._"
+    except subprocess.TimeoutExpired:
+        return (
+            "## 🔄 Repo sync (launch pull)\n\n"
+            "_Pull timed out — network may be slow. Run `uv run python "
+            "scripts/sync.py pull` manually if you want to sync before working._"
+        )
+    except (FileNotFoundError, OSError) as e:
+        return f"## 🔄 Repo sync (launch pull)\n\n_Pull could not run: {e}_"
+
+
 def build_context() -> str:
     """Assemble the context to inject into the conversation."""
     parts = []
+
+    # Cross-machine sync: pull both repos first so everything below reflects
+    # the latest state. Surfaced at the top so any conflict-resolution prompt
+    # is the first thing Claude sees.
+    sync_note = pull_repos()
+    if sync_note:
+        parts.append(sync_note)
 
     # Today's date
     today = datetime.now(timezone.utc).astimezone()
@@ -117,6 +196,12 @@ def build_context() -> str:
     note = pending_compile_note()
     if note:
         parts.append(note)
+
+    # Recent cross-device session logs (notes/sessions/) — placed before the
+    # large index so this high-value pointer survives MAX_CONTEXT_CHARS truncation.
+    sessions_note = recent_session_logs_note()
+    if sessions_note:
+        parts.append(sessions_note)
 
     # Knowledge base index (the core retrieval mechanism)
     if INDEX_FILE.exists():

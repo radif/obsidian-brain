@@ -18,6 +18,7 @@ os.environ["CLAUDE_INVOKED_BY"] = "memory_flush"
 import asyncio
 import json
 import logging
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -25,9 +26,28 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DAILY_DIR = ROOT / "raw" / "daily"
+SESSIONS_DIR = ROOT / "notes" / "sessions"   # cross-device session logs (outside compile pipeline)
 SCRIPTS_DIR = ROOT / "scripts"
 STATE_FILE = SCRIPTS_DIR / "last-flush.json"
 LOG_FILE = SCRIPTS_DIR / "flush.log"
+
+
+def _stage_in_content(rel_path: str) -> None:
+    """Stage one path (relative to the content-repo root) in the content repo.
+
+    The end-of-session push commits only the staged index (never `git add -A`),
+    so each writer must stage its own output. Best-effort: failures are logged.
+    """
+    content_repo = (ROOT / "raw").resolve().parent
+    try:
+        subprocess.run(
+            ["git", "-C", str(content_repo), "add", "--", rel_path],
+            capture_output=True,
+            timeout=15,
+            check=False,
+        )
+    except Exception as e:
+        logging.error("Failed to stage %s: %s", rel_path, e)
 
 # Set up file-based logging so we can verify the background process ran.
 # The parent process sends stdout/stderr to DEVNULL (to avoid the inherited
@@ -147,6 +167,113 @@ respond with exactly: FLUSH_OK
     return response
 
 
+async def run_session_log(context: str) -> str:
+    """Second LLM pass: produce a rich operational session log for notes/sessions/.
+
+    Unlike the daily-log flush (which feeds the compile pipeline), this is the
+    cross-device continuity layer — read at the start of future sessions. Format
+    mirrors the canonical 8-section session dump. Returns the markdown body, or
+    "SESSION_LOG_SKIP" if there's nothing worth a continuity log.
+    """
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ClaudeAgentOptions,
+        ResultMessage,
+        TextBlock,
+        query,
+    )
+
+    prompt = f"""Write an operational SESSION LOG from the conversation context below.
+This is continuity for a FUTURE session (possibly on another machine) to resume
+work with zero re-deriving — not a knowledge article. Do NOT use any tools; return
+plain Markdown only.
+
+Produce these sections as Markdown `##` headings, in this order. Include a section
+only if it has real content (omit empty ones), but always include 1, 7, and 8:
+
+1. **High-level arc** — the phases of work this session, in chronological order
+2. **Files created or modified** — every path, grouped by area
+3. **Key facts** that surfaced or got refined
+4. **Decisions made** — and the rationale
+5. **Open issues / pending verifications** — anything the user must confirm or decide
+6. **Tools / dependencies installed** during the session
+7. **State of long-running efforts** — scrapes, compiles, builds, CI — each with the
+   exact command to resume it (write "None." if there are none)
+8. **Next-up bookmarks** — concrete continuation points in priority order, so resuming
+   needs zero re-deriving (write "None." if there are none)
+
+If the session was trivial (no durable work, decisions, or follow-ups worth resuming),
+respond with exactly: SESSION_LOG_SKIP
+
+## Conversation Context
+
+{context}"""
+
+    response = ""
+    try:
+        async for message in query(
+            prompt=prompt,
+            options=ClaudeAgentOptions(
+                cwd=str(ROOT),
+                allowed_tools=[],
+                max_turns=2,
+            ),
+        ):
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        response += block.text
+            elif isinstance(message, ResultMessage):
+                from utils import format_token_usage
+                logging.info("Session-log usage: %s", format_token_usage(message.usage))
+    except Exception as e:
+        import traceback
+        logging.error("Session-log SDK error: %s\n%s", e, traceback.format_exc())
+        return "SESSION_LOG_SKIP"
+
+    return response
+
+
+def write_session_log(body: str) -> str | None:
+    """Write a session log to notes/sessions/<YYYY-MM-DD>-<HHMM>.md. Returns the
+    content-repo-relative path that was written (for staging), or None if skipped.
+    """
+    if not body or "SESSION_LOG_SKIP" in body:
+        logging.info("Session log: SKIP (nothing worth logging)")
+        return None
+
+    now = datetime.now(timezone.utc).astimezone()
+    date_str = now.strftime("%Y-%m-%d")
+    stamp = now.strftime("%Y-%m-%d-%H%M")
+    SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+
+    log_path = SESSIONS_DIR / f"{stamp}.md"
+    # Avoid clobbering a same-minute log from another session.
+    suffix = 1
+    while log_path.exists():
+        log_path = SESSIONS_DIR / f"{stamp}-{suffix}.md"
+        suffix += 1
+
+    frontmatter = (
+        "---\n"
+        f"session_date: {date_str}\n"
+        f'session_time: "{now.strftime("%H:%M %Z")}"\n'
+        "title: Session context dump\n"
+        "type: session-log\n"
+        "visibility: internal\n"
+        "tags: [session, context-dump]\n"
+        "---\n\n"
+        f"# Session context — {date_str}\n\n"
+        "Operational dump of this session's conversation, written automatically at "
+        "session end. Outside the compile pipeline (lives in `notes/`); read at the "
+        "start of future sessions for cross-device continuity.\n\n"
+        "---\n\n"
+    )
+    log_path.write_text(frontmatter + body.strip() + "\n", encoding="utf-8")
+    logging.info("Session log written: %s (%d chars)", log_path.name, len(body))
+    return f"notes/sessions/{log_path.name}"
+
+
 # ---------------------------------------------------------------------------
 # DISABLED 2026-06-02: end-of-day auto-compilation.
 #
@@ -216,6 +343,33 @@ respond with exactly: FLUSH_OK
 # ---------------------------------------------------------------------------
 
 
+def push_repos() -> None:
+    """Push the content repo now that the daily log is written.
+
+    flush.py is the detached process that produces end-of-session content, so
+    this is the correct push point: the new daily-log entry is on disk before
+    we commit+push. Delegated to scripts/sync.py (pure git, no SDK), which
+    pushes the CONTENT repo only — the structural repo is pushed manually.
+    Best-effort — failures are logged, never raised, so a sync problem can't
+    break a flush.
+    """
+    sync_script = SCRIPTS_DIR / "sync.py"
+    if not sync_script.exists():
+        return
+    try:
+        proc = subprocess.run(
+            ["uv", "run", "python", str(sync_script), "push"],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=90,
+            check=False,
+        )
+        logging.info("Repo push:\n%s", (proc.stdout or proc.stderr or "").strip())
+    except Exception as e:
+        logging.error("Repo push failed to run: %s", e)
+
+
 def main():
     if len(sys.argv) < 3:
         logging.error("Usage: %s <context_file.md> <session_id>", sys.argv[0])
@@ -252,7 +406,10 @@ def main():
     # Run the LLM extraction
     response = asyncio.run(run_flush(context))
 
-    # Append to daily log
+    # Append to daily log (compile-pipeline feedstock), and stage it so the
+    # end-of-session push commits it (push commits only the staged index).
+    today = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d")
+    substantive = False
     if "FLUSH_OK" in response:
         logging.info("Result: FLUSH_OK")
         append_to_daily_log(
@@ -264,6 +421,20 @@ def main():
     else:
         logging.info("Result: saved to daily log (%d chars)", len(response))
         append_to_daily_log(response, "Session")
+        substantive = True
+    _stage_in_content(f"raw/daily/{today}.md")
+
+    # Cross-device session log (notes/sessions/) — a richer operational dump for
+    # future sessions to resume from. Only for substantive sessions, to avoid a
+    # second LLM call (and a clutter file) on trivial ones.
+    if substantive:
+        try:
+            session_body = asyncio.run(run_session_log(context))
+            session_rel = write_session_log(session_body)
+            if session_rel:
+                _stage_in_content(session_rel)
+        except Exception as e:
+            logging.error("Session log step failed: %s", e)
 
     # Update dedup state
     save_flush_state({"session_id": session_id, "timestamp": time.time()})
@@ -277,6 +448,9 @@ def main():
     # Uncompiled changes are now surfaced as a passive reminder at session
     # start (hooks/session-start.py) so the user runs `/compile` deliberately.
     # maybe_trigger_compilation()
+
+    # Cross-machine sync: push both repos now that the daily log is on disk.
+    push_repos()
 
     logging.info("Flush complete for session %s", session_id)
 
