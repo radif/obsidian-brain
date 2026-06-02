@@ -147,57 +147,73 @@ respond with exactly: FLUSH_OK
     return response
 
 
-COMPILE_AFTER_HOUR = 18  # 6 PM local time
-
-
-def maybe_trigger_compilation() -> None:
-    """If it's past the compile hour and today's log hasn't been compiled, run compile.py."""
-    import subprocess as _sp
-
-    now = datetime.now(timezone.utc).astimezone()
-    if now.hour < COMPILE_AFTER_HOUR:
-        return
-
-    # Check if today's log has already been compiled. State keys are paths
-    # relative to the repo root (e.g. "raw/daily/2026-04-10.md").
-    today_name = f"{now.strftime('%Y-%m-%d')}.md"
-    today_key = str((DAILY_DIR / today_name).relative_to(ROOT))
-    # Compile state lives next to raw/, not under scripts/ — see config.py.
-    compile_state_file = (ROOT / "raw").resolve().parent / "state.json"
-    if compile_state_file.exists():
-        try:
-            compile_state = json.loads(compile_state_file.read_text(encoding="utf-8"))
-            ingested = compile_state.get("ingested", {})
-            if today_key in ingested:
-                # Already compiled today - check if the log has changed since
-                from hashlib import sha256
-                log_path = DAILY_DIR / today_name
-                if log_path.exists():
-                    current_hash = sha256(log_path.read_bytes()).hexdigest()[:16]
-                    if ingested[today_key].get("hash") == current_hash:
-                        return  # log unchanged since last compile
-        except (json.JSONDecodeError, OSError):
-            pass
-
-    compile_script = SCRIPTS_DIR / "compile.py"
-    if not compile_script.exists():
-        return
-
-    logging.info("End-of-day compilation triggered (after %d:00)", COMPILE_AFTER_HOUR)
-
-    cmd = ["uv", "run", "--directory", str(ROOT), "python", str(compile_script)]
-
-    kwargs: dict = {}
-    if sys.platform == "win32":
-        kwargs["creationflags"] = _sp.CREATE_NEW_PROCESS_GROUP | _sp.DETACHED_PROCESS
-    else:
-        kwargs["start_new_session"] = True
-
-    try:
-        log_handle = open(str(SCRIPTS_DIR / "compile.log"), "a")
-        _sp.Popen(cmd, stdout=log_handle, stderr=_sp.STDOUT, cwd=str(ROOT), **kwargs)
-    except Exception as e:
-        logging.error("Failed to spawn compile.py: %s", e)
+# ---------------------------------------------------------------------------
+# DISABLED 2026-06-02: end-of-day auto-compilation.
+#
+# This used to spawn compile.py in the background whenever flush ran after
+# 6 PM and today's log had uncompiled changes. It was disabled because it
+# spent tokens / Claude credits without consent — kicking off an expensive
+# compile from a detached process the user couldn't see, sometimes exhausting
+# the quota before they realized it was running. Bad planning around credit
+# use. Replaced by a passive, free reminder in hooks/session-start.py
+# (pending_compile_note) that surfaces uncompiled changes at session start so
+# the user can choose to run `/compile` themselves.
+#
+# Kept here (commented) rather than deleted in case auto-compile is ever
+# reintroduced behind an explicit opt-in / budget guard.
+#
+# COMPILE_AFTER_HOUR = 18  # 6 PM local time
+#
+#
+# def maybe_trigger_compilation() -> None:
+#     """If it's past the compile hour and today's log hasn't been compiled, run compile.py."""
+#     import subprocess as _sp
+#
+#     now = datetime.now(timezone.utc).astimezone()
+#     if now.hour < COMPILE_AFTER_HOUR:
+#         return
+#
+#     # Check if today's log has already been compiled. State keys are paths
+#     # relative to the repo root (e.g. "raw/daily/2026-04-10.md").
+#     today_name = f"{now.strftime('%Y-%m-%d')}.md"
+#     today_key = str((DAILY_DIR / today_name).relative_to(ROOT))
+#     # Compile state lives next to raw/, not under scripts/ — see config.py.
+#     compile_state_file = (ROOT / "raw").resolve().parent / "state.json"
+#     if compile_state_file.exists():
+#         try:
+#             compile_state = json.loads(compile_state_file.read_text(encoding="utf-8"))
+#             ingested = compile_state.get("ingested", {})
+#             if today_key in ingested:
+#                 # Already compiled today - check if the log has changed since
+#                 from hashlib import sha256
+#                 log_path = DAILY_DIR / today_name
+#                 if log_path.exists():
+#                     current_hash = sha256(log_path.read_bytes()).hexdigest()[:16]
+#                     if ingested[today_key].get("hash") == current_hash:
+#                         return  # log unchanged since last compile
+#         except (json.JSONDecodeError, OSError):
+#             pass
+#
+#     compile_script = SCRIPTS_DIR / "compile.py"
+#     if not compile_script.exists():
+#         return
+#
+#     logging.info("End-of-day compilation triggered (after %d:00)", COMPILE_AFTER_HOUR)
+#
+#     cmd = ["uv", "run", "--directory", str(ROOT), "python", str(compile_script)]
+#
+#     kwargs: dict = {}
+#     if sys.platform == "win32":
+#         kwargs["creationflags"] = _sp.CREATE_NEW_PROCESS_GROUP | _sp.DETACHED_PROCESS
+#     else:
+#         kwargs["start_new_session"] = True
+#
+#     try:
+#         log_handle = open(str(SCRIPTS_DIR / "compile.log"), "a")
+#         _sp.Popen(cmd, stdout=log_handle, stderr=_sp.STDOUT, cwd=str(ROOT), **kwargs)
+#     except Exception as e:
+#         logging.error("Failed to spawn compile.py: %s", e)
+# ---------------------------------------------------------------------------
 
 
 def main():
@@ -255,9 +271,12 @@ def main():
     # Clean up context file
     context_file.unlink(missing_ok=True)
 
-    # End-of-day auto-compilation: if it's past the compile hour and today's
-    # log hasn't been compiled yet, trigger compile.py in the background.
-    maybe_trigger_compilation()
+    # DISABLED 2026-06-02: auto-compile previously ran here via
+    # maybe_trigger_compilation() (see the commented-out block above). It was
+    # turned off because it spent tokens / Claude credits without consent.
+    # Uncompiled changes are now surfaced as a passive reminder at session
+    # start (hooks/session-start.py) so the user runs `/compile` deliberately.
+    # maybe_trigger_compilation()
 
     logging.info("Flush complete for session %s", session_id)
 

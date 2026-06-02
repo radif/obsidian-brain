@@ -21,6 +21,7 @@ import os
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from pathlib import Path
 
 # Recursion guard: exit immediately if we were spawned by a script that uses
@@ -59,6 +60,51 @@ def get_recent_log() -> str:
     return "(no recent daily log)"
 
 
+def pending_compile_note() -> str:
+    """Return a reminder string if uncompiled daily-log changes are pending.
+
+    Auto-compilation was removed (it spent tokens without consent). Instead we
+    detect, at session start, whether the most recent daily log is missing from
+    the compile state or has changed since it was last compiled, and surface a
+    reminder so the user can choose to run `/compile`. Returns "" when nothing
+    is pending or state can't be read.
+    """
+    today = datetime.now(timezone.utc).astimezone()
+
+    # Find the most recent existing daily log (today or yesterday).
+    log_path = None
+    for offset in range(2):
+        date = today - timedelta(days=offset)
+        candidate = DAILY_DIR / f"{date.strftime('%Y-%m-%d')}.md"
+        if candidate.exists():
+            log_path = candidate
+            break
+    if log_path is None:
+        return ""
+
+    # Compile state lives next to raw/, not under scripts/ — see config.py.
+    state_file = (ROOT / "raw").resolve().parent / "state.json"
+    log_key = str(log_path.relative_to(ROOT))
+
+    try:
+        if state_file.exists():
+            ingested = json.loads(state_file.read_text(encoding="utf-8")).get("ingested", {})
+            entry = ingested.get(log_key)
+            if entry is not None:
+                current_hash = sha256(log_path.read_bytes()).hexdigest()[:16]
+                if entry.get("hash") == current_hash:
+                    return ""  # already compiled, unchanged — nothing pending
+    except (json.JSONDecodeError, OSError):
+        return ""  # can't tell — stay silent rather than nag
+
+    return (
+        f"## ⏳ Compile pending\n\n"
+        f"`{log_key}` has changes that haven't been compiled into the knowledge "
+        f"base yet. Compilation is **not** automatic (it spends tokens), so run "
+        f"`/compile` (or `just compile`) when you're ready, or ignore this for now."
+    )
+
+
 def build_context() -> str:
     """Assemble the context to inject into the conversation."""
     parts = []
@@ -66,6 +112,11 @@ def build_context() -> str:
     # Today's date
     today = datetime.now(timezone.utc).astimezone()
     parts.append(f"## Today\n{today.strftime('%A, %B %d, %Y')}")
+
+    # Reminder if there's uncompiled daily-log work (replaces old auto-compile).
+    note = pending_compile_note()
+    if note:
+        parts.append(note)
 
     # Knowledge base index (the core retrieval mechanism)
     if INDEX_FILE.exists():
