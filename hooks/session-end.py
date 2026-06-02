@@ -41,6 +41,33 @@ MAX_CONTEXT_CHARS = 15_000
 MIN_TURNS_TO_FLUSH = 1
 
 
+def spawn_push() -> None:
+    """Push the content repo at session end when no flush was spawned.
+
+    The normal end-of-session push happens at flush.py's tail (after the daily
+    log is written). But when there's nothing to flush (no transcript, empty
+    context, too few turns), flush never runs — so we push here instead to keep
+    "push at end" honest for any content changed during the session. sync.py
+    pushes the CONTENT repo only; the structural repo is pushed manually.
+    Spawned DETACHED so a slow network push can't blow the hook's 10s timeout.
+    """
+    sync_script = SCRIPTS_DIR / "sync.py"
+    if not sync_script.exists():
+        return
+    cmd = ["uv", "run", "--directory", str(ROOT), "python", str(sync_script), "push"]
+    creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    try:
+        subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=creation_flags,
+        )
+        logging.info("Spawned sync.py push (no flush this session)")
+    except Exception as e:
+        logging.error("Failed to spawn sync.py push: %s", e)
+
+
 def extract_conversation_context(transcript_path: Path) -> tuple[str, int]:
     """Read JSONL transcript and extract last ~N conversation turns as markdown."""
     turns: list[str] = []
@@ -92,10 +119,21 @@ def extract_conversation_context(transcript_path: Path) -> tuple[str, int]:
 
 
 def main() -> None:
+    # Track whether we hand off to flush.py (which pushes at its tail). If we
+    # bail out before that, push here instead so "push at session end" holds.
+    flush_spawned = False
+    try:
+        flush_spawned = _run(sys.stdin.read())
+    finally:
+        if not flush_spawned:
+            spawn_push()
+
+
+def _run(raw_input: str) -> bool:
+    """Process the SessionEnd payload. Returns True iff flush.py was spawned."""
     # Read hook input from stdin
     # Claude Code on Windows may pass paths with unescaped backslashes
     try:
-        raw_input = sys.stdin.read()
         try:
             hook_input: dict = json.loads(raw_input)
         except json.JSONDecodeError:
@@ -103,7 +141,7 @@ def main() -> None:
             hook_input = json.loads(fixed_input)
     except (json.JSONDecodeError, ValueError, EOFError) as e:
         logging.error("Failed to parse stdin: %s", e)
-        return
+        return False
 
     session_id = hook_input.get("session_id", "unknown")
     source = hook_input.get("source", "unknown")
@@ -113,27 +151,27 @@ def main() -> None:
 
     if not transcript_path_str or not isinstance(transcript_path_str, str):
         logging.info("SKIP: no transcript path")
-        return
+        return False
 
     transcript_path = Path(transcript_path_str)
     if not transcript_path.exists():
         logging.info("SKIP: transcript missing: %s", transcript_path_str)
-        return
+        return False
 
     # Extract conversation context in the hook (fast, no API calls)
     try:
         context, turn_count = extract_conversation_context(transcript_path)
     except Exception as e:
         logging.error("Context extraction failed: %s", e)
-        return
+        return False
 
     if not context.strip():
         logging.info("SKIP: empty context")
-        return
+        return False
 
     if turn_count < MIN_TURNS_TO_FLUSH:
         logging.info("SKIP: only %d turns (min %d)", turn_count, MIN_TURNS_TO_FLUSH)
-        return
+        return False
 
     # Write context to a temp file for the background process
     timestamp = datetime.now(timezone.utc).astimezone().strftime("%Y%m%d-%H%M%S")
@@ -166,8 +204,10 @@ def main() -> None:
             creationflags=creation_flags,
         )
         logging.info("Spawned flush.py for session %s (%d turns, %d chars)", session_id, turn_count, len(context))
+        return True
     except Exception as e:
         logging.error("Failed to spawn flush.py: %s", e)
+        return False
 
 
 if __name__ == "__main__":

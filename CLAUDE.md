@@ -71,6 +71,7 @@ Paths under `raw/`, `knowledge/`, and `notes/` are gitignored here and resolve e
 |------|-------|------|
 | `raw/` `knowledge/` `notes/` `projects/` | symlinks *or* real dirs | Gitignored here. Set up by `scripts/link-content.py` in either mode. |
 | `notes/*.md` | Human | Freeform scratch space (TODO lists, session-context dumps, working drafts). Outside `RAW_DIR`; not scanned by `list_raw_files()` and never enters the compile/query/lint pipeline. |
+| `notes/sessions/<YYYY-MM-DD>-<HHMM>.md` | `flush.py` + Human | Cross-device session logs — operational continuity, not knowledge. `flush.py` auto-writes one at the end of each substantive session (rich 8-section dump); the SessionStart hook lists the most recent so the next session (on any machine) can resume. Outside the compile pipeline; `lint.py` skips it. See "Session logs" below. |
 | `projects/<project-name>/` | Human | Active multi-stage project work — content drafts, HTML/CSS layouts, build scripts, versioned outputs. One subdirectory per project. Outside `RAW_DIR`; not scanned by `list_raw_files()` and never enters the compile/query/lint pipeline. Use for brochures, web rebuilds, design exports, anything with its own iteration trail and source-and-output artifacts. |
 | `raw/daily/YYYY-MM-DD.md` | Human + `flush.py` | Conversation logs. Append only. Hashed by the content repo's `state.json`. The SessionStart hook auto-injects today's file into the next session. |
 | `raw/clippings/*.md` | Obsidian Web Clipper + human | Web article captures. Same immutability + compile rules. Not auto-injected. |
@@ -85,7 +86,8 @@ Paths under `raw/`, `knowledge/`, and `notes/` are gitignored here and resolve e
 | `scripts/*.py` | Human | Source. Edit freely. |
 | `state.json` (content-repo root in linked mode, structural-repo root in solo mode) | Scripts | Compile cache. Keys are paths relative to the structural repo root (e.g. `raw/daily/2026-04-10.md`). Tracked in the content repo so compile state syncs across machines. Never hand-edit. |
 | `scripts/last-flush.json`, `scripts/flush.log` | Scripts | Runtime artifacts (host-local: dedup lock + flush debug log). Ignore. |
-| `hooks/*.py` | Human | Edit carefully — changes affect every session. Timeouts from `.claude/settings.json`: SessionStart 15s, PreCompact 10s, SessionEnd 10s. Hooks make no LLM/API calls (only local I/O + subprocess spawns); the heavy work happens in the detached `flush.py`. |
+| `hooks/*.py` | Human | Edit carefully — changes affect every session. Timeouts from `.claude/settings.json`: SessionStart 25s, PreCompact 10s, SessionEnd 10s. Hooks make no LLM/API calls (only local I/O + subprocess spawns); the heavy work happens in the detached `flush.py`. SessionStart's larger budget covers the launch `git pull` of both repos (see Cross-machine git sync below). |
+| `scripts/sync.py` | Human | Cross-machine git sync. `pull` (launch) syncs both repos; `push` (session end) pushes the **content repo only** — structural pushes are manual. See Cross-machine git sync below. |
 | `reports/` | `lint.py` | Generated lint reports. |
 
 ## Workflow invariants
@@ -96,6 +98,31 @@ Paths under `raw/`, `knowledge/`, and `notes/` are gitignored here and resolve e
 4. **Prefer `scripts/query.py` over manual synthesis** when the user's question spans multiple articles. Use `--file-back` when the answer itself is worth preserving.
 5. **Never delete a raw source that has been compiled.** Compiled articles reference it in their `sources:` frontmatter (e.g. `raw/daily/2026-04-10.md`); deletion creates broken links.
 6. **The `CLAUDE_INVOKED_BY` env var is load-bearing.** Set at the top of `flush.py`, `compile.py`, and `query.py` before the Agent SDK is invoked. Honored by all three hooks (`session-start.py`, `session-end.py`, `pre-compact.py`), which exit immediately when it's present. Together, these prevent the hooks from firing inside the SDK's bundled Claude Code subprocess — which would otherwise cause recursion, overhead, and (as of the fix on 2026-04-18) spurious `Command failed with exit code 1` errors after each compile/query/flush.
+7. **Stage content you want synced; the end-of-session push commits only the staged index.** `sync.py push` never runs `git add` — it commits exactly what is staged in the content repo, then pushes. So when you create or edit a content file during a session (`raw/**`, `knowledge/**`, `notes/**`, `state.json`) that should ride to other machines, `git add` it. Anything you leave unstaged — and all untracked junk (stray screenshots, Playwright `.playwright-mcp/` captures, scratch JSON/YAML) — is deliberately left out of the automatic commit. `flush.py` stages the daily-log entry it writes for you; you stage the rest.
+
+## Cross-machine git sync
+
+Both repos this engine spans — the structural repo (this checkout) and the content repo (`raw/.resolve().parent`) — are kept in sync across machines automatically by `scripts/sync.py`, driven from the session hooks. In solo mode the two paths collapse to one and are deduplicated.
+
+- **Pull at launch.** `hooks/session-start.py` runs `sync.py pull`, which fetches + merges both repos so the session starts current, and injects the result as the first block of session context. When a merge is needed it first commits **only what is already staged** (never `git add -A`), then merges. It **never auto-resolves conflicts**: on a real conflict it leaves the repo mid-merge on purpose, and if a merge is *blocked* by unstaged local changes it leaves the tree intact — either way the injected block instructs Claude to resolve before doing other work (daily logs and `knowledge/log.md` are append-only → keep both sides). Resolve, then stage just the resolved files and `git -C <repo> commit --no-edit`.
+- **Push at end — content repo only, staged files only.** The push happens at the tail of the detached `flush.py` (after the daily-log entry is written), via `sync.py push`. When no flush is spawned (no transcript / empty context / too few turns), `hooks/session-end.py` spawns `sync.py push` directly. It commits **only the staged index** — it never runs `git add`. So the only things that land in an automatic commit are files the session **explicitly staged**; stray Playwright PNGs, scratch JSON/YAML, and any other untracked/unstaged files are never committed. **It fetches + merges before pushing** so a concurrent push from another machine doesn't reject ours as non-fast-forward; since this runs headless (no Claude to resolve), a clean/fast-forward merge proceeds to push while a genuine conflict is **aborted and deferred** to the next launch pull (where Claude resolves it). **The structural repo is never auto-pushed** (engine code lands manually).
+- **Each writer stages its own output** (this is how "commit only what Claude worked on" is enforced — see workflow invariant 7): `flush.py` stages the daily-log entry it writes; interactive Claude stages the content files it creates/edits. Nothing is ever blanket-added, so the index *is* the manifest of intent.
+- `sync.py` makes **no LLM/SDK calls** (pure git subprocess) and **always exits 0** — a sync problem is surfaced as text, never crashes a hook or aborts a flush. Run it by hand anytime: `uv run python scripts/sync.py pull|push`.
+
+## Session logs (`notes/sessions/`)
+
+Cross-device operational continuity, distinct from the two other memory layers. Three layers, by reach:
+
+- **Daily logs** (`raw/daily/`) — compile-pipeline feedstock; promoted into `knowledge/`. Auto-flushed, auto-injected (today's) at launch.
+- **Session logs** (`notes/sessions/<YYYY-MM-DD>-<HHMM>.md`) — operational, **not** knowledge; never compiled. They capture *how to resume*: long-running efforts with their resume commands, next-up bookmarks, files-in-flight, decisions. They live in the content repo, so they reach every machine on the next pull.
+- **Machine-local memory** (`~/.claude/projects/<id>/memory/`) — never travels across machines. Use only for genuinely host-specific facts.
+
+**Decision rule:** something worth remembering for a future session defaults to a session log (it travels), not machine-local memory.
+
+How it works (engine-wide — same `flush.py` + hooks across every brain that links this engine):
+
+- **Write (session end):** `flush.py` makes a second LLM pass (`run_session_log`) producing a rich 8-section dump (arc · files changed · key facts · decisions · open issues · tools installed · state of long-running efforts *with resume commands* · next-up bookmarks), writes it to `notes/sessions/<stamp>.md` with `type: session-log` frontmatter, and stages it for the end-of-session push. Only for **substantive** sessions — trivial ones (`FLUSH_OK`) write no session log, so there's no second LLM call or clutter file. Filenames are minute-stamped and de-duplicated, so two machines never collide on the same file.
+- **Read (launch):** `hooks/session-start.py` lists the most recent few session logs (filenames only — they're tens of KB, too big to inline) and injects a pointer instructing Claude to `Read` them in full *when the first message continues prior work*, and to skip them for a purely fresh or structural task.
 
 ## Adding raw sources manually
 
